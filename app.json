@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "ProVOC",
+    "slug": "pv-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D0D0D"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.provoc.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0D0D0D"
+      },
+      "package": "com.provoc.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-av",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ProVOC to access your camera."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ProVOC to access your photos."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow ProVOC to use your location to find nearby businesses."
+        }
+      ]
+    ],
+    "scheme": "provoc",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "newArchEnabled": true
+  }
+}
