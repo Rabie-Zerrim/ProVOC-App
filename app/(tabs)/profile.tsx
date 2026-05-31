@@ -118,7 +118,14 @@ export default function ProfileScreen() {
       {
         text: 'Log out', style: 'destructive',
         onPress: async () => {
-          await AsyncStorage.multiRemove(['@provoc_token', '@provoc_user'])
+          await AsyncStorage.multiRemove([
+              '@provoc_token',
+              '@provoc_user',
+              '@provoc_avatar',
+              '@provoc_pins',
+              '@provoc_platforms',
+              '@provoc_pinned_drafts',
+            ])
           router.replace('/auth')
         },
       },
