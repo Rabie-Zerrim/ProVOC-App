@@ -453,10 +453,31 @@ export default function ChatScreen() {
     if (reviewId) await api.patch(`/reviews/${reviewId}`, { review_text: trimmed }).catch(() => {})
   }
 
-  const handleSubmit = () => {
+  const buildSelectedSlugs = async () => {
+    try {
+      const { data } = await api.get('/networks')
+      const networkIdList = (params.network_ids ?? '')
+        .split(',')
+        .filter(Boolean)
+      return data
+        .filter((n: any) => networkIdList.includes(n.network_id))
+        .map((n: any) => n.slug)
+    } catch {
+      return []
+    }
+  }
+
+  const handleSubmit = async () => {
+    const selectedSlugs = await buildSelectedSlugs()
     router.push({
       pathname: '/review/breakdown',
-      params: { ...params, review_id: reviewId ?? '', address: businessAddress, review_text: generatedReview ?? '' },
+      params: {
+        ...params,
+        review_id: reviewId ?? '',
+        address: businessAddress,
+        review_text: generatedReview ?? '',
+        selected_networks: JSON.stringify(selectedSlugs),
+      },
     })
   }
 
