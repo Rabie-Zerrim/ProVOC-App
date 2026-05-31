@@ -160,7 +160,10 @@ Returns: { text, language, confidence }
 ⚠️ Use `response.data.text` (not `.transcript`) — `.text` is the correct field name.
 
 POST /reviews/:id/chat/start
-Body: { listing_context: { business_name, networks }, language: 'en' }
+Body: { listing_context: { business_name, networks, context_note? }, language: 'en' }
+— context_note is a plain-English string built from rating + enhance selections (fix 21).
+— pv-bff must forward context_note to pv-ai listing_context (fix 22).
+— pv-ai must append context_note to the system prompt as "USER CONTEXT: ..." (fix 23).
 Returns: { session_id, message: string }
 
 POST /reviews/:id/chat/message
@@ -638,6 +641,8 @@ All 20 fixes below have been applied and verified (`npx tsc --noEmit` → 0 erro
 | 18 | `app/review/result.tsx` | **"Enhance with AI" skips enhance screen for old reviews.** Added `checkingHistory` state. Enhance chip `onPress` now calls `handleEnhanceTap`: fetches `GET /reviews/:id/chat/history`; if length > 0 (old review), navigates directly to `/review/chat` with existing params + resolved `business_name`; if length === 0 (new review), navigates to `/review/enhance` as before. Chip shows `<ActivityIndicator>` and is disabled while the check is in flight (<1 s). Falls back to enhance screen on any API error. |
 | 19 | `app/review/chat.tsx` | **Added Regenerate button alongside Rephrase in the AI-Generated Review card.** New `regenerating` state; new `handleRegenerate` function: reuses existing `sessionId` (or starts a new session if expired) then calls `chat/approve` directly — no rephrase message sent. The approved text replaces the review and is PATCHed to the server. Rephrase and Regenerate buttons are mutually exclusive: each disables the other via cross-referenced `disabled` props. Regenerate uses `sync-outline` icon. |
 | 20 | `app/review/chat.tsx` | **FIX — handleRegenerate requires active session.** Removed `chat/start` fallback. Added `Alert` to react-native imports. If `sessionId` is null, shows `Alert('Continue the conversation first', 'Send a message about what you want to add or change, then tap Regenerate to update the review.')` and returns early. If session is active, calls `chat/approve` directly using `sessionId`. Error catch now also shows `Alert('Error', 'Could not regenerate the review. Please try again.')`. |
+| 21 | `app/review/chat.tsx` | **FIX — AI had no context at chat/start.** In `initChat`, before the `chat/start` call, parse `params.enhance_context` into `enhanceCtx` and build `contextNote` string (`"The user rated this experience N out of 5 stars. They felt X. They want a Y tone. Their goal is to Z. Key aspects: A, B."`). Pass it as `listing_context.context_note` so the AI has full user context from the very first message. |
+| 22 | `app/review/result.tsx` | **FIX — overall rating was read-only.** Added `editableRating` state (init: `Number(params.rating) \|\| 4`; synced from API in useEffect). Replaced static `Ionicons` stars in `renderPlatformCard` with tappable `TouchableOpacity` stars that call `setEditableRating(s)` + `PATCH /reviews/:id { rating: s }`. Added "Tap to change rating" hint label. Also updated `sentiment` to derive from `editableRating` so the label stays in sync. |
 
 **reviews.tsx tab endpoints:**
 - All → `GET /reviews`

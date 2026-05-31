@@ -53,6 +53,7 @@ export default function ResultScreen() {
   const [breakdown, setBreakdown] = useState<Record<string, Record<string, number>>>(() => {
     try { return params.breakdown ? JSON.parse(params.breakdown) : {} } catch { return {} }
   })
+  const [editableRating, setEditableRating] = useState(Number(params.rating) || 4)
 
   useEffect(() => {
     if (!params.review_id) { setLoading(false); return }
@@ -61,6 +62,7 @@ export default function ResultScreen() {
         const reviewText = (params.review_text as string) || data.review_text || ''
         setReview({ ...data, review_text: reviewText })
         setEditText(reviewText)
+        if (data.rating) setEditableRating(data.rating)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -113,7 +115,7 @@ export default function ResultScreen() {
 
   const networks = review?.listing?.networks ?? []
   const reviewRating = review?.rating ?? Number(params.rating) ?? 4
-  const sentiment = SENTIMENT_LABELS[Math.round(reviewRating)] ?? SENTIMENT_LABELS[4]
+  const sentiment = SENTIMENT_LABELS[Math.round(editableRating)] ?? SENTIMENT_LABELS[4]
   const businessName = review?.business?.name ?? review?.listing?.name ?? params.business_name ?? 'Business'
   const bizType = review?.business?.business_type ?? params.business_type ?? ''
 
@@ -182,12 +184,25 @@ export default function ResultScreen() {
         <View style={styles.cardHeader}>
           {/* Left: green rating panel */}
           <View style={styles.ratingPanel}>
-            <Text style={styles.ratingBigNum}>{reviewRating.toFixed(1)}</Text>
-            <View style={styles.ratingStars}>
+            <Text style={styles.ratingBigNum}>{editableRating.toFixed(1)}</Text>
+            <View style={{ flexDirection: 'row' }}>
               {[1, 2, 3, 4, 5].map((s) => (
-                <Ionicons key={s} name={s <= Math.round(reviewRating) ? 'star' : 'star-outline'} size={14} color="#FFB800" />
+                <TouchableOpacity
+                  key={s}
+                  onPress={async () => {
+                    setEditableRating(s)
+                    await api.patch(`/reviews/${params.review_id}`, { rating: s })
+                  }}
+                >
+                  <Ionicons
+                    name={s <= editableRating ? 'star' : 'star-outline'}
+                    size={24}
+                    color="#FFB800"
+                  />
+                </TouchableOpacity>
               ))}
             </View>
+            <Text style={{ color: '#8B9099', fontSize: 11 }}>Tap to change rating</Text>
             {externalRating ? (
               <Text style={styles.ratingLabel}>{externalRating.toFixed(1)} avg</Text>
             ) : (

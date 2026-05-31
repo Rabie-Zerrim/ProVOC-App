@@ -176,9 +176,28 @@ export default function ChatScreen() {
         setReviewId(rid)
       }
 
+      const enhanceCtx = params.enhance_context
+        ? JSON.parse(params.enhance_context as string)
+        : null
+
+      const contextNote = [
+        params.rating ? `The user rated this experience ${params.rating} out of 5 stars.` : '',
+        enhanceCtx?.emotion ? `They felt ${enhanceCtx.emotion.replace(/^.*\s/, '')} about it.` : '',
+        enhanceCtx?.tone ? `They want a ${enhanceCtx.tone} tone.` : '',
+        enhanceCtx?.goal ? `Their goal is to ${enhanceCtx.goal.toLowerCase()}.` : '',
+        enhanceCtx?.aspects?.length ? `Key aspects: ${enhanceCtx.aspects.map((a: string) => a.replace(/^.*\s/, '')).join(', ')}.` : '',
+      ].filter(Boolean).join(' ')
+
       const { data } = await api.post(
         `/reviews/${rid}/chat/start`,
-        { listing_context: { business_name: params.business_name, networks: [] }, language: 'en' },
+        {
+          listing_context: {
+            business_name: params.business_name,
+            networks: [],
+            context_note: contextNote,
+          },
+          language: 'en',
+        },
         { timeout: 120000 }
       )
       setSessionId(data.session_id)
