@@ -58,7 +58,8 @@
         {
           "locationWhenInUsePermission": "Allow ProVOC to use your location to find nearby businesses."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "provoc",
     "experiments": {
