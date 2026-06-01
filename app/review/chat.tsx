@@ -49,6 +49,7 @@ export default function ChatScreen() {
   const [editReviewText, setEditReviewText] = useState('')
   const [rephrasing, setRephrasing] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [approvedRating, setApprovedRating] = useState<number | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -334,6 +335,7 @@ export default function ChatScreen() {
       const reviewText = data.review_text ?? data.improved_text ?? data.text ?? ''
       setGeneratedReview(reviewText)
       setEditReviewText(reviewText)
+      setApprovedRating(data.rating ?? Number(params.rating))
       setSessionId(null)
       if (reviewText) setVoiceMode(true)
       if (reviewText) {
@@ -473,6 +475,7 @@ export default function ChatScreen() {
       pathname: '/review/breakdown',
       params: {
         ...params,
+        rating: String(approvedRating ?? params.rating),
         review_id: reviewId ?? '',
         address: businessAddress,
         review_text: generatedReview ?? '',
