@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TodayCard from '../../components/TodayCard'
-import { PLATFORM_CONFIG } from '../../utils/platformConfig'
+import { PLATFORM_CONFIG, getCategoriesForBusiness } from '../../utils/platformConfig'
 import { getBizPhoto } from '../../utils/bizPhoto'
 
 const PLATFORMS_ORDER = ['facebook', 'yelp', 'google', 'tripadvisor', 'trustpilot']
@@ -56,6 +56,8 @@ export default function BreakdownScreen() {
     selectedSlugs = []
   }
 
+  const businessCategories = getCategoriesForBusiness(params.business_type)
+
   const bizPhoto = getBizPhoto(params.business_type ?? '', params.listing_id ?? params.business_name ?? '')
 
   return (
@@ -79,7 +81,7 @@ export default function BreakdownScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {PLATFORMS_ORDER.filter((slug) => selectedSlugs.includes(slug)).map((slug) => {
           const cfg = PLATFORM_CONFIG[slug]
-          const subs = cfg.breakdownCategories
+          const subs = businessCategories
 
           return (
             <View key={slug} style={styles.platformCard}>

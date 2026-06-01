@@ -91,3 +91,23 @@ export function getPlatformConfig(slugOrName: string): PlatformConfig | null {
   }
   return null
 }
+
+export const BUSINESS_TYPE_CATEGORIES: Record<string, string[]> = {
+  restaurant: ['Food', 'Service', 'Atmosphere', 'Value'],
+  cafe: ['Coffee', 'Food', 'Service', 'Atmosphere'],
+  fitness: ['Facilities', 'Staff', 'Cleanliness', 'Value'],
+  gym: ['Facilities', 'Staff', 'Cleanliness', 'Value'],
+  hotel: ['Rooms', 'Cleanliness', 'Service', 'Location'],
+  retail: ['Products', 'Staff', 'Value', 'Experience'],
+  entertainment: ['Experience', 'Staff', 'Facilities', 'Value'],
+  default: ['Service', 'Staff', 'Value', 'Experience'],
+}
+
+export function getCategoriesForBusiness(businessType: string | undefined): string[] {
+  if (!businessType) return BUSINESS_TYPE_CATEGORIES.default
+  const key = businessType.toLowerCase()
+  for (const [type, cats] of Object.entries(BUSINESS_TYPE_CATEGORIES)) {
+    if (key.includes(type)) return cats
+  }
+  return BUSINESS_TYPE_CATEGORIES.default
+}
