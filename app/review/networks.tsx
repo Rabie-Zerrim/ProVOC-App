@@ -7,7 +7,7 @@ import TodayCard from '../../components/TodayCard'
 import api from '../../services/api'
 import { getBizPhoto } from '../../utils/bizPhoto'
 
-type Network = { id: string; name: string; slug: string }
+type Network = { network_id: string; name: string; slug: string }
 
 const PLATFORM_COLORS: Record<string, string> = {
   google: '#4285F4',
@@ -71,7 +71,7 @@ export default function NetworksScreen() {
 
   const selectAll = () => {
     if (selected.size === networks.length) setSelected(new Set())
-    else setSelected(new Set(networks.map((n) => n.id)))
+    else setSelected(new Set(networks.map((n) => n.network_id)))
   }
 
   return (
@@ -117,12 +117,12 @@ export default function NetworksScreen() {
                   </TouchableOpacity>
                 </View>
                 {networks.map((net) => (
-                  <View key={net.id} style={styles.platformRow}>
+                  <View key={net.network_id} style={styles.platformRow}>
                     <PlatformDot slug={net.slug} name={net.name} />
                     <Text style={styles.platformName}>{net.name}</Text>
                     <Switch
-                      value={selected.has(net.id)}
-                      onValueChange={() => toggle(net.id)}
+                      value={selected.has(net.network_id)}
+                      onValueChange={() => toggle(net.network_id)}
                       trackColor={{ false: '#3A3F4B', true: '#2D6A4F' }}
                       thumbColor="#fff"
                     />
@@ -144,7 +144,7 @@ export default function NetworksScreen() {
           onPress={() =>
             router.push({
               pathname: '/review/rate',
-              params: { listing_id, business_name, address, rating, business_type, network_ids: JSON.stringify([...selected]) },
+              params: { listing_id, business_name, address, rating, business_type, network_ids: [...selected].join(',') },
             })
           }
         >

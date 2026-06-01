@@ -458,9 +458,10 @@ export default function ChatScreen() {
   const buildSelectedSlugs = async () => {
     try {
       const { data } = await api.get('/networks')
-      const networkIdList = (params.network_ids ?? '')
-        .split(',')
-        .filter(Boolean)
+      const raw = params.network_ids ?? ''
+      const networkIdList = raw.startsWith('[')
+        ? JSON.parse(raw).filter(Boolean)
+        : raw.split(',').filter(Boolean)
       return data
         .filter((n: any) => networkIdList.includes(n.network_id))
         .map((n: any) => n.slug)
