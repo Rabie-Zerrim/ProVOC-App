@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -282,11 +283,22 @@ true;
       {/* Paste guide banner — shown when auto-fill times out (closed shadow DOM) */}
       {status === 'timeout' && (
         <View style={styles.pasteBanner}>
-          <Ionicons name="clipboard-outline" size={16} color="#FFB800" />
-          <Text style={styles.pasteBannerText}>
-            Review text is in your clipboard.{'\n'}
-            Tap the text field → long-press → Paste → tap Post
-          </Text>
+          <Ionicons name="clipboard-outline" size={16} color="#FFB800" style={{ marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pasteBannerText}>
+              Tap the text field → long-press → Paste → tap Post
+            </Text>
+            <TouchableOpacity
+              style={styles.copyBtn}
+              onPress={async () => {
+                await Clipboard.setStringAsync(params.review_text ?? '')
+                Alert.alert('Copied!', 'Review text copied to clipboard.')
+              }}
+            >
+              <Ionicons name="copy-outline" size={13} color="#FFB800" />
+              <Text style={styles.copyBtnText}>Copy review text again</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -368,7 +380,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2000', borderBottomWidth: 1, borderBottomColor: '#FFB80044',
     paddingHorizontal: 16, paddingVertical: 10,
   },
-  pasteBannerText: { color: '#FFB800', fontSize: 13, lineHeight: 19, flex: 1 },
+  pasteBannerText: { color: '#FFB800', fontSize: 13, lineHeight: 19, marginBottom: 8 },
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    backgroundColor: '#3A2E00', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#FFB80055',
+  },
+  copyBtnText: { color: '#FFB800', fontSize: 12, fontWeight: '700' },
 
   loadingOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
