@@ -73,6 +73,9 @@ export default function ResultScreen() {
       .finally(() => setLoading(false))
   }, [params.review_id])
 
+  // Must be called before any early return — Rules of Hooks
+  const placePhotoUrl = usePlacePhoto(review?.listing?.external_listing_id)
+
   const setSubRating = (platform: string, sub: string, val: number) =>
     setBreakdown((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? {}), [sub]: val } }))
 
@@ -229,7 +232,6 @@ export default function ResultScreen() {
     }
   }
   const bizAddress = review?.business?.address ?? params.address ?? ''
-  const placePhotoUrl = usePlacePhoto(review?.listing?.external_listing_id)
   const bizPhoto = placePhotoUrl ?? getBizPhoto(bizType, params.listing_id ?? businessName)
   const externalRating = review?.listing?.external_rating != null ? Number(review.listing.external_rating) : null
 
