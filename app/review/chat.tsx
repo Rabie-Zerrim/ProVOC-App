@@ -58,6 +58,21 @@ export default function ChatScreen() {
   const flatRef = useRef<FlatList>(null)
   const messagesRef = useRef<Message[]>([])
 
+  // Computed once from stable params — used in initChat and handleRegenerate
+  const _enhanceCtx = (() => {
+    try { return params.enhance_context ? JSON.parse(params.enhance_context as string) : null }
+    catch { return null }
+  })()
+  const contextNote = [
+    params.rating ? `The user rated this experience ${params.rating} out of 5 stars.` : '',
+    _enhanceCtx?.emotion ? `They felt ${_enhanceCtx.emotion.replace(/^.*\s/, '')} about it.` : '',
+    _enhanceCtx?.tone ? `They want a ${_enhanceCtx.tone} tone.` : '',
+    _enhanceCtx?.goal ? `Their goal is to ${_enhanceCtx.goal.toLowerCase()}.` : '',
+    _enhanceCtx?.aspects?.length
+      ? `Key aspects: ${_enhanceCtx.aspects.map((a: string) => a.replace(/^.*\s/, '')).join(', ')}.`
+      : '',
+  ].filter(Boolean).join(' ')
+
   useEffect(() => { initChat() }, [])
 
   useFocusEffect(useCallback(() => {
@@ -176,18 +191,6 @@ export default function ChatScreen() {
         rid = data.review_id ?? data.id
         setReviewId(rid)
       }
-
-      const enhanceCtx = params.enhance_context
-        ? JSON.parse(params.enhance_context as string)
-        : null
-
-      const contextNote = [
-        params.rating ? `The user rated this experience ${params.rating} out of 5 stars.` : '',
-        enhanceCtx?.emotion ? `They felt ${enhanceCtx.emotion.replace(/^.*\s/, '')} about it.` : '',
-        enhanceCtx?.tone ? `They want a ${enhanceCtx.tone} tone.` : '',
-        enhanceCtx?.goal ? `Their goal is to ${enhanceCtx.goal.toLowerCase()}.` : '',
-        enhanceCtx?.aspects?.length ? `Key aspects: ${enhanceCtx.aspects.map((a: string) => a.replace(/^.*\s/, '')).join(', ')}.` : '',
-      ].filter(Boolean).join(' ')
 
       const { data } = await api.post(
         `/reviews/${rid}/chat/start`,
@@ -402,21 +405,31 @@ export default function ChatScreen() {
 
   const handleRegenerate = async () => {
     if (!reviewId) return
-
-    if (!sessionId) {
-      Alert.alert(
-        'Continue the conversation first',
-        'Send a message about what you want to add or change, then tap Regenerate to update the review.',
-      )
-      return
-    }
-
     const prev = generatedReview
     setRegenerating(true)
     try {
+      const { data: startData } = await api.post(
+        `/reviews/${reviewId}/chat/start`,
+        {
+          listing_context: {
+            business_name: params.business_name,
+            networks: [],
+            context_note: contextNote,
+          },
+          previous_messages: messages.map(m => ({
+            role: m.role === 'ai' ? 'assistant' : 'user',
+            content: m.text,
+          })),
+          language: 'en',
+        },
+        { timeout: 120000 }
+      )
+      const freshSessionId = startData.session_id
+      setSessionId(freshSessionId)
+
       const { data: approveData } = await api.post(
         `/reviews/${reviewId}/chat/approve`,
-        { session_id: sessionId },
+        { session_id: freshSessionId },
         { timeout: 60000 }
       )
 
@@ -431,17 +444,14 @@ export default function ChatScreen() {
         setEditReviewText(newText)
         await api.patch(`/reviews/${reviewId}`, {
           review_text: newText,
-          rating: approveData.rating
+          rating: approveData.rating,
         })
       } else {
         setGeneratedReview(prev)
       }
     } catch {
       setGeneratedReview(prev)
-      Alert.alert(
-        'Error',
-        'Could not regenerate the review. Please try again.'
-      )
+      Alert.alert('Error', 'Could not regenerate the review. Please try again.')
     } finally {
       setRegenerating(false)
     }
