@@ -63,6 +63,7 @@ Audio: expo-av
 Camera: expo-camera
 Media: expo-image-picker
 Icons: @expo/vector-icons (Ionicons)
+WebView: react-native-webview 13.15.0 — Google auto-post screen
 ```
 
 ---
@@ -474,6 +475,44 @@ Query GET /listings/:id to get the network_id for a saved listing.
 
 ---
 
+### Screen 17b: WebView Auto-Post (Google) — `app/review/webview-post.tsx`
+**Design:** Dark header + full-screen WebView + status bar at bottom.
+
+**Params received:**
+- `review_url` — Google review deep link from publish-link API
+- `review_text` — generated review text (pre-copied to clipboard as backup)
+- `rating` — overall star rating (1–5 string)
+- `food_rating`, `service_rating`, `atmosphere_rating` — optional sub-ratings (1–5 string, empty if not set)
+- `business_name` — displayed in header
+- `review_id` — used for PATCH /reviews/:id after success
+
+**Elements:**
+- Header: "Posting to Google..." + back arrow
+- Full-screen WebView loading the Google review URL
+- Status bar (bottom): animated indicator + current step text:
+  - "Waiting for review form..." (polling)
+  - "Filling review..." (found textarea, filling)
+  - "Submitting..." (clicking Post button)
+  - "Review posted!" (green ✓, auto-navigates home after 2s)
+  - "Form not found — fill manually" (amber ⚠, timeout after 15 s)
+
+**WebView injection logic:**
+1. Poll every 500 ms for `textarea[jsname="YPqjbf"]` (max 30 attempts = 15 s)
+2. Fill textarea using native prototype setter + `input`/`change` events so React detects the change
+3. Click overall star: `div[aria-label="Rating stars"] div[role="radio"][data-rating="${rating}"]`
+4. If food/service/atmosphere non-empty, click corresponding sub-rating stars
+5. Wait 1 500 ms, find submit: `button[jsname="b3VHJd"]` or any `<button>` containing "Post"
+6. Click submit, wait 2 s, `postMessage('submitted')`
+
+**On submission:**
+- PATCH /reviews/:id `{ status: 'published' }`
+- Navigate to `/(tabs)/home` after 2 s delay
+- `handled` guard prevents double-fire if injected JS runs on redirect pages
+
+**Triggered from:** `result.tsx` — when platform slug is `'google'`, `handlePost` navigates here instead of calling `Linking.openURL`. Review text is also copied to clipboard silently as fallback in case auto-fill fails.
+
+---
+
 ### Screen 17: Thank You — `app/review/thankyou.tsx`
 **Design:** Dark, centered.
 
@@ -510,6 +549,7 @@ app/
     ├── enhance.tsx        → enhance with AI modal
     ├── breakdown.tsx      → per-platform ratings
     ├── result.tsx         → review result
+    ├── webview-post.tsx   → Google WebView auto-fill & submit
     ├── photos.tsx         → photo upload
     └── thankyou.tsx       → success screen
 ```
@@ -650,6 +690,7 @@ All 20 fixes below have been applied and verified (`npx tsc --noEmit` → 0 erro
 | 27 | `app/review/chat.tsx` | **ROBUSTNESS — `buildSelectedSlugs` now handles both formats.** Added `raw.startsWith('[')` branch: if `network_ids` is a legacy JSON array string, `JSON.parse` it; otherwise `.split(',')`. Removed three debug `console.log` lines added during investigation. `breakdown.tsx` debug logs also removed. |
 | 28 | `utils/platformConfig.ts` | **FEATURE — business-type-aware breakdown categories.** Added `BUSINESS_TYPE_CATEGORIES` map (restaurant/cafe/fitness/gym/hotel/retail/entertainment/default) and `getCategoriesForBusiness(businessType)` helper that substring-matches the business type key and returns the appropriate category list. |
 | 29 | `app/review/breakdown.tsx` | **FEATURE — breakdown now shows categories matching the business type, not the platform.** Imported `getCategoriesForBusiness`; derived `businessCategories` once from `params.business_type`; replaced `const subs = cfg.breakdownCategories` with `const subs = businessCategories` so every platform card shows the same relevant categories for that business. |
+| 30 | `app/review/webview-post.tsx` (new) + `app/review/result.tsx` | **FEATURE — Google auto-post via WebView.** New screen `webview-post.tsx` opens the Google review URL in a WebView, polls for the review textarea (`jsname="YPqjbf"`), fills it via native prototype setter, clicks star ratings, clicks the Post button, and PATCHes the review status to `published` on success. `result.tsx` `handlePost` now forks on `platformSlug === 'google'`: navigates to `/review/webview-post` with review text, rating, and sub-ratings instead of calling `Linking.openURL`. Text is still copied to clipboard silently as a fallback. Dependency added: `react-native-webview@13.15.0`. |
 
 **reviews.tsx tab endpoints:**
 - All → `GET /reviews`
@@ -681,7 +722,7 @@ The exact journey to demonstrate:
 8. AI transcribes → chat conversation → AI generates review
 9. Submit review → see generated text
 10. Tap "Post to Yelp" → text copied → Yelp opens → paste → done
-11. Tap "Post to Google" → text copied → Google opens → paste → done
+11. Tap "Post to Google" → WebView opens Google review form → auto-fills text + stars → auto-submits → "Review posted!" → home
 12. Thank you screen
 
 Total demo time: ~3 minutes

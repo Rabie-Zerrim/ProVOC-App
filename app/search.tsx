@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 import api from '../services/api'
 import { getBizPhoto } from '../utils/bizPhoto'
+import { usePlacePhoto } from '../hooks/usePlacePhoto'
 
 const HISTORY_KEY = '@provoc_search_history'
 const MAX_HISTORY = 6
@@ -56,6 +57,60 @@ const CATEGORIES = [
   { label: 'Shopping', emoji: '🛍️', amenities: ['mall', 'marketplace'] },
   { label: 'Health', emoji: '🏥', amenities: ['pharmacy', 'clinic', 'hospital'] },
 ]
+
+type SearchResultItemProps = {
+  item: ResultItem
+  activeCategory: string | null
+  onPress: () => void
+}
+
+function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemProps) {
+  const name = typeof item.data.name === 'string' ? item.data.name : ''
+  const addr = typeof item.data.formattedAddress === 'string' ? item.data.formattedAddress : ''
+  const rating = typeof item.data.globalRating === 'number' && item.data.globalRating > 0 ? item.data.globalRating : null
+  const isOSM = item.network === 'osm'
+
+  const rc: any = item.data.reviewCount
+  let count: number | null = null
+  if (typeof rc === 'number' && rc > 0) {
+    count = rc
+  } else if (rc && typeof rc === 'object') {
+    const nat = rc.native
+    if (typeof nat === 'number') count = nat
+    else if (nat && typeof nat === 'object' && typeof nat.total === 'number') count = nat.total
+  }
+
+  const googlePlaceId = item.network === 'google' ? item.data.id : null
+  const placePhotoUrl = usePlacePhoto(googlePlaceId)
+  const fallbackUri = getBizPhoto(item.bizType ?? (activeCategory?.toLowerCase() ?? ''), name || item.data.id)
+  const photoUri = placePhotoUrl ?? fallbackUri
+
+  return (
+    <TouchableOpacity style={styles.resultItem} onPress={onPress}>
+      <Image source={{ uri: photoUri }} style={styles.resultThumb} />
+      <View style={styles.resultInfo}>
+        <View style={styles.resultNameRow}>
+          <Text style={styles.resultName} numberOfLines={1}>{name}</Text>
+          <View style={[styles.networkChip, isOSM && styles.networkChipOSM]}>
+            <Text style={styles.networkChipText}>{isOSM ? 'nearby' : item.network}</Text>
+          </View>
+        </View>
+        <Text style={styles.resultAddress} numberOfLines={1}>{addr}</Text>
+        <View style={styles.ratingRow}>
+          {rating != null ? (
+            <>
+              <Ionicons name="star" size={12} color="#FFB800" />
+              <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+              {count != null ? <Text style={styles.reviewCount}>({count} reviews)</Text> : null}
+            </>
+          ) : (
+            <Text style={styles.ratingText}>—</Text>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  )
+}
 
 export default function SearchScreen() {
   const router = useRouter()
@@ -191,6 +246,8 @@ export default function SearchScreen() {
       setResults(items)
       if (items.length === 0) setSearchError('No businesses found. Try a more specific address.')
     } catch (err: any) {
+      console.log('Search error status:', err?.response?.status)
+      console.log('Search error body:', JSON.stringify(err?.response?.data))
       const msg = err?.response?.data?.message
         ? (Array.isArray(err.response.data.message) ? err.response.data.message[0] : err.response.data.message)
         : err?.message ?? 'Search failed.'
@@ -398,50 +455,13 @@ export default function SearchScreen() {
     })
   }
 
-  const renderResult = ({ item }: { item: ResultItem }) => {
-    const name = typeof item.data.name === 'string' ? item.data.name : ''
-    const addr = typeof item.data.formattedAddress === 'string' ? item.data.formattedAddress : ''
-    const rating = typeof item.data.globalRating === 'number' && item.data.globalRating > 0 ? item.data.globalRating : null
-    const isOSM = item.network === 'osm'
-
-    const rc: any = item.data.reviewCount
-    let count: number | null = null
-    if (typeof rc === 'number' && rc > 0) {
-      count = rc
-    } else if (rc && typeof rc === 'object') {
-      const nat = rc.native
-      if (typeof nat === 'number') count = nat
-      else if (nat && typeof nat === 'object' && typeof nat.total === 'number') count = nat.total
-    }
-
-    const photoUri = getBizPhoto(item.bizType ?? (activeCategory?.toLowerCase() ?? ''), name || item.data.id)
-
-    return (
-      <TouchableOpacity style={styles.resultItem} onPress={() => handleSelect(item)}>
-        <Image source={{ uri: photoUri }} style={styles.resultThumb} />
-        <View style={styles.resultInfo}>
-          <View style={styles.resultNameRow}>
-            <Text style={styles.resultName} numberOfLines={1}>{name}</Text>
-            <View style={[styles.networkChip, isOSM && styles.networkChipOSM]}>
-              <Text style={styles.networkChipText}>{isOSM ? 'nearby' : item.network}</Text>
-            </View>
-          </View>
-          <Text style={styles.resultAddress} numberOfLines={1}>{addr}</Text>
-          <View style={styles.ratingRow}>
-            {rating != null ? (
-              <>
-                <Ionicons name="star" size={12} color="#FFB800" />
-                <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
-                {count != null ? <Text style={styles.reviewCount}>({count} reviews)</Text> : null}
-              </>
-            ) : (
-              <Text style={styles.ratingText}>—</Text>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
-    )
-  }
+  const renderResult = ({ item }: { item: ResultItem }) => (
+    <SearchResultItem
+      item={item}
+      activeCategory={activeCategory}
+      onPress={() => handleSelect(item)}
+    />
+  )
 
   return (
     <View style={styles.container}>

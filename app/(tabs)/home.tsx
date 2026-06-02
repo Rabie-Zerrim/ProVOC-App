@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 import api from '../../services/api'
 import { getBizPhoto } from '../../utils/bizPhoto'
+import { usePlacePhoto } from '../../hooks/usePlacePhoto'
 
 type User = { user_id: string; email: string; display_name: string }
 type DraftReview = {
@@ -54,6 +55,39 @@ function formatDraftDate(dateStr: string) {
 
   const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   return { relative, time }
+}
+
+type NearbyCardProps = {
+  biz: NearbyItem
+  onPress: () => void
+}
+
+function NearbyCard({ biz, onPress }: NearbyCardProps) {
+  const placePhotoUrl = usePlacePhoto(biz.id)
+  const fallbackUri = getBizPhoto(biz.type ?? '', biz.id)
+  const photoUri = placePhotoUrl ?? fallbackUri
+
+  return (
+    <TouchableOpacity style={styles.nearbyCard} onPress={onPress} activeOpacity={0.85}>
+      <ImageBackground
+        source={{ uri: photoUri }}
+        style={styles.nearbyCardBg}
+        imageStyle={{ borderRadius: 16 }}
+      >
+        <View style={styles.nearbyCardOverlay}>
+          {biz.distance != null && (
+            <View style={styles.nearbyBadge}>
+              <Text style={styles.nearbyBadgeText}>{fmtDistance(biz.distance)}</Text>
+            </View>
+          )}
+          <View style={styles.nearbyBottom}>
+            <Text style={styles.nearbyName} numberOfLines={2}>{biz.name}</Text>
+            <Text style={styles.nearbyAddr} numberOfLines={1}>{biz.address}</Text>
+          </View>
+        </View>
+      </ImageBackground>
+    </TouchableOpacity>
+  )
 }
 
 export default function HomeScreen() {
@@ -205,25 +239,7 @@ export default function HomeScreen() {
           contentContainerStyle={{ paddingLeft: 20, paddingRight: 8 }}
         >
           {nearby.map((biz) => (
-            <TouchableOpacity key={biz.id} style={styles.nearbyCard} onPress={() => router.push('/search')} activeOpacity={0.85}>
-              <ImageBackground
-                source={{ uri: getBizPhoto(biz.type ?? '', biz.id) }}
-                style={styles.nearbyCardBg}
-                imageStyle={{ borderRadius: 16 }}
-              >
-                <View style={styles.nearbyCardOverlay}>
-                  {biz.distance != null && (
-                    <View style={styles.nearbyBadge}>
-                      <Text style={styles.nearbyBadgeText}>{fmtDistance(biz.distance)}</Text>
-                    </View>
-                  )}
-                  <View style={styles.nearbyBottom}>
-                    <Text style={styles.nearbyName} numberOfLines={2}>{biz.name}</Text>
-                    <Text style={styles.nearbyAddr} numberOfLines={1}>{biz.address}</Text>
-                  </View>
-                </View>
-              </ImageBackground>
-            </TouchableOpacity>
+            <NearbyCard key={biz.id} biz={biz} onPress={() => router.push('/search')} />
           ))}
         </ScrollView>
       )}
