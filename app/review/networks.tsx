@@ -23,6 +23,11 @@ const PLATFORM_FA_ICONS: Record<string, string> = {
   facebook: 'facebook',
 }
 
+const networkLabel = (slug: string) =>
+  slug.toLowerCase().startsWith('google')
+    ? 'Google'
+    : slug.charAt(0).toUpperCase() + slug.slice(1)
+
 function PlatformDot({ slug, name }: { slug: string; name: string }) {
   const color = PLATFORM_COLORS[slug] ?? '#2D6A4F'
   const faIcon = PLATFORM_FA_ICONS[slug]
@@ -119,7 +124,7 @@ export default function NetworksScreen() {
                 {networks.map((net) => (
                   <View key={net.network_id} style={styles.platformRow}>
                     <PlatformDot slug={net.slug} name={net.name} />
-                    <Text style={styles.platformName}>{net.name}</Text>
+                    <Text style={styles.platformName}>{networkLabel(net.slug)}</Text>
                     <Switch
                       value={selected.has(net.network_id)}
                       onValueChange={() => toggle(net.network_id)}
