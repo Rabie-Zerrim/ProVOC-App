@@ -232,10 +232,14 @@ export default function SearchScreen() {
     setSearchError('')
     setUsingOSM(false)
     try {
-      const searchParams: Record<string, string | number> = { q }
+      const searchParams: Record<string, string> = { q }
       if (coords?.lat != null) {
-        searchParams.lat = coords.lat
-        searchParams.lng = coords.lon
+        searchParams.lat = String(coords.lat)
+        searchParams.lng = String(coords.lon)
+      } else {
+        // Default to Tunis centre if GPS unavailable or not yet resolved
+        searchParams.lat = '36.8065'
+        searchParams.lng = '10.1815'
       }
       const { data } = await api.get('/listings/search', { params: searchParams })
       const networkData = data?.data ?? data
