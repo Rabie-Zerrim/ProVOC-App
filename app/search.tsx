@@ -81,7 +81,7 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
   }
 
   const placePhotoUrl = item.data.photo_reference
-    ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${encodeURIComponent(item.data.photo_reference)}&key=${process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}`
+    ? `https://places.googleapis.com/v1/${item.data.photo_reference}/media?maxWidthPx=400&key=${process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}`
     : null
   const fallbackUri = getBizPhoto(item.bizType ?? (activeCategory?.toLowerCase() ?? ''), name || item.data.id)
   const photoUri = placePhotoUrl ?? fallbackUri
