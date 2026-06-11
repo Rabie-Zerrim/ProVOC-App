@@ -16,7 +16,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 import api from '../services/api'
 import { getBizPhoto } from '../utils/bizPhoto'
-import { usePlacePhoto } from '../hooks/usePlacePhoto'
 
 const HISTORY_KEY = '@provoc_search_history'
 const MAX_HISTORY = 6
@@ -29,6 +28,7 @@ type SearchResult = {
   globalRating: number
   reviewCount: number | { native?: { total?: number } }
   url: string
+  photo_reference?: string
 }
 
 type ResultItem = {
@@ -80,8 +80,9 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
     else if (nat && typeof nat === 'object' && typeof nat.total === 'number') count = nat.total
   }
 
-  const googlePlaceId = item.network === 'google' ? item.data.id : null
-  const placePhotoUrl = usePlacePhoto(googlePlaceId)
+  const placePhotoUrl = item.data.photo_reference
+    ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${encodeURIComponent(item.data.photo_reference)}&key=${process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}`
+    : null
   const fallbackUri = getBizPhoto(item.bizType ?? (activeCategory?.toLowerCase() ?? ''), name || item.data.id)
   const photoUri = placePhotoUrl ?? fallbackUri
 
@@ -247,7 +248,7 @@ export default function SearchScreen() {
       for (const network of Object.keys(networkData)) {
         const entry = networkData[network]
         if (entry && typeof entry === 'object' && entry.id) {
-          items.push({ network, data: entry })
+          items.push({ network, data: { ...entry, photo_reference: entry.photo_reference ?? undefined } })
         }
       }
       setResults(items)
