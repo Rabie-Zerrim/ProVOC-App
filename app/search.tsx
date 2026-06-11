@@ -226,15 +226,18 @@ export default function SearchScreen() {
     })
   }
 
-  const doSearch = useCallback(async (q: string, addr: string) => {
-    if (!q.trim() || !addr.trim()) { setResults([]); return }
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); return }
     setLoading(true)
     setSearchError('')
     setUsingOSM(false)
     try {
-      const params = new URLSearchParams({ name: q, address: addr })
-      activeNetworkSlugsRef.current.forEach((n) => params.append('networks[]', n))
-      const { data } = await api.get(`/listings/search?${params.toString()}`)
+      const searchParams: Record<string, string | number> = { q }
+      if (coords?.lat != null) {
+        searchParams.lat = coords.lat
+        searchParams.lng = coords.lon
+      }
+      const { data } = await api.get('/listings/search', { params: searchParams })
       const networkData = data?.data ?? data
       const items: ResultItem[] = []
       for (const network of Object.keys(networkData)) {
@@ -244,7 +247,7 @@ export default function SearchScreen() {
         }
       }
       setResults(items)
-      if (items.length === 0) setSearchError('No businesses found. Try a more specific address.')
+      if (items.length === 0) setSearchError('No businesses found. Try a more specific search term.')
     } catch (err: any) {
       console.log('Search error status:', err?.response?.status)
       console.log('Search error body:', JSON.stringify(err?.response?.data))
@@ -256,14 +259,14 @@ export default function SearchScreen() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [coords])
 
   useEffect(() => {
     if (usingOSM) return  // don't trigger Zembra search when showing OSM results
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => doSearch(query, address), 500)
+    debounceRef.current = setTimeout(() => doSearch(query), 500)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query, address, doSearch, usingOSM])
+  }, [query, doSearch, usingOSM])
 
   // Save additional platform listings for a business already saved under one platform.
   // Returns the network_ids of all listings for this business after saving.
@@ -580,7 +583,7 @@ export default function SearchScreen() {
             showsVerticalScrollIndicator={false}
           />
         </>
-      ) : query.length > 0 && address.length > 0 && !loading ? (
+      ) : query.length > 0 && !loading ? (
         <View style={styles.emptyState}>
           <Ionicons name="search-outline" size={48} color="#3A3F4B" />
           <Text style={styles.emptyText}>No results for "{query}"</Text>
