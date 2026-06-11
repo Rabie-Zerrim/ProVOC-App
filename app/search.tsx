@@ -69,6 +69,9 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
   const addr = typeof item.data.formattedAddress === 'string' ? item.data.formattedAddress : ''
   const rating = typeof item.data.globalRating === 'number' && item.data.globalRating > 0 ? item.data.globalRating : null
   const isOSM = item.network === 'osm'
+  const networkLabel = item.network.toLowerCase().startsWith('google')
+    ? 'Google'
+    : item.network.charAt(0).toUpperCase() + item.network.slice(1)
 
   const rc: any = item.data.reviewCount
   let count: number | null = null
@@ -93,7 +96,7 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
         <View style={styles.resultNameRow}>
           <Text style={styles.resultName} numberOfLines={1}>{name}</Text>
           <View style={[styles.networkChip, isOSM && styles.networkChipOSM]}>
-            <Text style={styles.networkChipText}>{isOSM ? 'nearby' : item.network}</Text>
+            <Text style={styles.networkChipText}>{isOSM ? 'nearby' : networkLabel}</Text>
           </View>
         </View>
         <Text style={styles.resultAddress} numberOfLines={1}>{addr}</Text>
@@ -243,6 +246,7 @@ export default function SearchScreen() {
         searchParams.lng = '10.1815'
       }
       const { data } = await api.get('/listings/search', { params: searchParams })
+      console.log('Raw API response:', JSON.stringify(data).substring(0, 2000))
       const networkData = data?.data ?? data
       const items: ResultItem[] = []
       for (const network of Object.keys(networkData)) {
