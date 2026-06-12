@@ -708,7 +708,30 @@ All 20 fixes below have been applied and verified (`npx tsc --noEmit` → 0 erro
 
 ---
 
-## 14. Demo Flow (June 10)
+## 14. Demo Flow (June 12 — updated)
+
+> **Note:** Step 11 below was revised. Google blocks WebView authentication since 2021, so the WebView auto-fill approach was abandoned. Google posting now uses clipboard + `Linking.openURL` (external browser), same as all other platforms. User pastes the pre-copied review text manually.
+
+The exact journey to demonstrate:
+
+1. Register new user → login
+2. Home screen → tap "Share review"
+3. Search "McDonald's Paris" → results appear with business photos
+4. Tap result → save listing → network select
+5. Select Yelp + Google → Next
+6. Rate 4 stars → Next
+7. Choose "Voice review" → record 30 seconds → End
+8. AI transcribes → chat conversation → AI generates review
+9. Submit review → see generated text
+10. Tap "Post to Yelp" → text copied → Yelp opens in browser → paste → done
+11. Tap "Post to Google" → text copied → Google review page opens in browser → paste → done
+12. Thank you screen
+
+Total demo time: ~3 minutes
+
+---
+
+## 14b. Demo Flow (original — June 10)
 
 The exact journey to demonstrate:
 
@@ -736,3 +759,47 @@ Total demo time: ~3 minutes
 | Day 5 | Scaffold + auth screen + home screen + search screen |
 | Day 6 | Full review flow (networks → rate → type → voice → chat → result) |
 | Day 7 | Photos + thankyou + history tab + Railway deploy |
+
+---
+
+## 16. Applied Fixes (2026-06-12)
+
+| # | File | What changed |
+|---|---|---|
+| 31 | `app/search.tsx` | **Search params migrated to Google Places format.** `doSearch` now sends `q` + `lat` + `lng` instead of `name` + `address`. Coordinates always present — falls back to Tunis centre (`36.8065, 10.1815`) when GPS is unavailable or not yet resolved. |
+| 32 | `app/search.tsx` | **Business photos load directly from `photo_reference`.** Added `photo_reference?: string` to `SearchResult` type. `doSearch` spreads `...entry` (preserving `photo_reference` when the backend sends it). `SearchResultItem` builds the photo URL directly without a separate API call: `https://places.googleapis.com/v1/{photo_reference}/media?maxWidthPx=400&key=...` (Google Places New API format). Falls back to `getBizPhoto` when `photo_reference` is absent. |
+| 33 | `app/search.tsx` | **Removed `usePlacePhoto` hook.** The hook fired a `/place/details/json` round-trip per result row to fetch a `photo_reference`, then built the photo URL. That is now unnecessary because the backend already returns `photo_reference` in the search response. Import and all call sites removed. |
+| 34 | `app/search.tsx` | **Network badge normalization.** `SearchResultItem` derives `networkLabel` from `item.network`: any key that starts with `"google"` (case-insensitive — covers `google`, `Google_1`, `google_2` etc.) displays as `"Google"`; all others get their first letter uppercased. Badge now shows `networkLabel` instead of the raw API key. |
+| 35 | `app/review/networks.tsx` | **Same Google network label normalization applied.** Added `networkLabel(slug: string)` helper at module level (same logic as fix 34). Platform name in the toggle row changed from `{net.name}` to `{networkLabel(net.slug)}` so "google_1" / "Google_2" etc. all display as "Google". |
+| 36 | `app/review/result.tsx` | **Google posting reverted to clipboard + `Linking.openURL`.** The WebView auto-fill approach (`webview-post.tsx`) was abandoned: Google has blocked WebView-based authentication since 2021, causing the sign-in step to fail silently. `handlePost` for `platformSlug === 'google'` now follows the same path as Yelp / Facebook / Trustpilot — copies review text to clipboard and opens the Google review URL in the device's default browser. Per-platform posted status is tracked locally so the button updates after the user returns. |
+| 37 | `app/review/chat.tsx` | **`handleRegenerate` starts a fresh session with full history.** Previous implementation called `chat/approve` directly with `sessionId`, which failed silently when the Redis session had expired (5-min TTL). New logic: always calls `chat/start` to open a fresh session, passes the current `generatedReview` text as a prior-message so the AI has context, then immediately calls `chat/approve` on the new session. Falls back to an Alert when no generated review text exists to regenerate from. |
+| 38 | `.env` | **`EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` added.** Required for the Places New API photo endpoint (fix 32). Key is scoped to the Places API and must be included in Expo builds via `app.config.js` `extra` or left as an `EXPO_PUBLIC_` prefix so Expo injects it at build time. |
+
+**Dependencies note:**
+- `react-native-webview@13.15.0` was added during the WebView auto-fill attempt (fix 30 in section 13). The `webview-post.tsx` screen still exists in the repo but is no longer navigated to — `result.tsx` routes all platforms through `Linking.openURL`. The package can be removed if bundle size is a concern, but it is otherwise harmless.
+
+---
+
+## 17. Known Limitations & Architecture Decisions
+
+### Review platform posting
+All review platforms (Google, Yelp, Facebook, Tripadvisor, Trustpilot) use **clipboard + external browser** as the posting mechanism:
+1. `GET /reviews/:id/publish-link?platform_id=<uuid>` returns the deep-link URL and review text.
+2. Review text is copied to clipboard via `expo-clipboard`.
+3. URL is opened in the device browser via `Linking.openURL`.
+4. User pastes the text and submits manually.
+
+This is **intentional, not a limitation** — Google, Yelp, and Facebook all actively block:
+- WebView-based authentication (Google has blocked this since 2021 under the "Google Sign-In from embedded browsers" policy).
+- Automated form submission via injected JavaScript (rate-limited and flagged as bot activity).
+
+The clipboard + external browser approach is the industry standard used by Birdeye, Podium, and similar review management SaaS products.
+
+### Account switching
+Because posting opens the system browser (not a WebView), users can freely switch Google/Yelp accounts in the browser without the app interfering. A WebView would have trapped cookies and required explicit sign-out flows.
+
+### Photo availability
+`photo_reference` is only present in search results when the backend's Zembra/Google Places response includes it. For OSM nearby results (category chip search), `photo_reference` is never present — `getBizPhoto` fallback images are used instead.
+
+### WebView screen (`app/review/webview-post.tsx`)
+This file exists in the repo but is dead code as of 2026-06-12. No screen navigates to it. It can be deleted safely. If re-enabling WebView posting is ever attempted, note that it requires a Custom Tab (Android) or `SFSafariViewController` (iOS) rather than a plain `WebView` to pass Google's browser identity checks.
