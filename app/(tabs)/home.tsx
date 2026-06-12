@@ -10,6 +10,7 @@ import * as Location from 'expo-location'
 import api from '../../services/api'
 import { getBizPhoto } from '../../utils/bizPhoto'
 import { usePlacePhoto } from '../../hooks/usePlacePhoto'
+import { usePlaceRating } from '../../hooks/usePlaceRating'
 
 type User = { user_id: string; email: string; display_name: string }
 type DraftReview = {
@@ -90,6 +91,21 @@ function NearbyCard({ biz, onPress }: NearbyCardProps) {
   )
 }
 
+function RecommendationCard({ rec, onPress }: { rec: any; onPress: () => void }) {
+  const rating = usePlaceRating(rec.business_id)
+  return (
+    <TouchableOpacity style={styles.recCard} onPress={onPress}>
+      <Text style={styles.recName} numberOfLines={1}>{rec.business_name}</Text>
+      <View style={styles.recRating}>
+        <Text style={{ color: '#FFB800', fontSize: 13, fontWeight: '600' }}>
+          ⭐ {rating?.toFixed(1) ?? '—'}
+        </Text>
+      </View>
+      <Text style={styles.recScore}>{Math.round((rec.score ?? 0) * 100)}% match</Text>
+    </TouchableOpacity>
+  )
+}
+
 export default function HomeScreen() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -124,9 +140,16 @@ export default function HomeScreen() {
 
   useEffect(() => {
     api.get('/recommendations')
-      .then(({ data }) => setRecommendations(Array.isArray(data) ? data : (data?.data ?? [])))
-      .catch(() => setRecommendations([]))
+      .then(res => {
+        console.log('Recommendations response:', res.data)
+        setRecommendations(Array.isArray(res.data) ? res.data : (res.data?.data ?? []))
+      })
+      .catch((err) => {
+        console.log('Recommendations error:', err.response?.status, err.message)
+        setRecommendations([])
+      })
   }, [])
+  console.log('=== CURRENT USER ID ===', user?.user_id)
 
   const handleLongPress = (draft: DraftReview) => setSheetDraft(draft)
 
@@ -264,15 +287,20 @@ export default function HomeScreen() {
             contentContainerStyle={{ paddingLeft: 20, paddingRight: 8 }}
           >
             {recommendations.map((rec, idx) => (
-              <View key={idx} style={styles.recCard}>
-                <Text style={styles.recName} numberOfLines={1}>{rec.business_name}</Text>
-                <View style={styles.recRating}>
-                  <Text style={{ color: '#FFB800', fontSize: 13, fontWeight: '600' }}>
-                    ⭐ {rec.rating?.toFixed(1) ?? '—'}
-                  </Text>
-                </View>
-                <Text style={styles.recScore}>{Math.round((rec.score ?? 0) * 100)}% match</Text>
-              </View>
+              <RecommendationCard
+                key={idx}
+                rec={rec}
+                onPress={() => router.push({
+                  pathname: '/review/networks',
+                  params: {
+                    listing_id: rec.business_id,
+                    business_name: rec.business_name,
+                    address: '',
+                    rating: '',
+                    business_type: 'Restaurant',
+                  },
+                })}
+              />
             ))}
           </ScrollView>
         </>
