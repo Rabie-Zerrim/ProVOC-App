@@ -91,10 +91,38 @@ function NearbyCard({ biz, onPress }: NearbyCardProps) {
   )
 }
 
-function RecommendationCard({ rec, onPress }: { rec: any; onPress: () => void }) {
+function RecommendationCard({ rec }: { rec: any }) {
+  const router = useRouter()
   const rating = usePlaceRating(rec.business_id)
   return (
-    <TouchableOpacity style={styles.recCard} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.recCard}
+      onPress={async () => {
+        try {
+          const { data } = await api.post('/listings', {
+            external_listing_id: rec.business_id,
+            external_url: '',
+            name: rec.business_name,
+            address: '',
+            external_rating: rating ?? 0,
+            network: 'google',
+          })
+          const listingId = data.listing_id ?? data.id
+          router.push({
+            pathname: '/review/networks',
+            params: {
+              listing_id: listingId,
+              business_name: rec.business_name,
+              address: '',
+              rating: rating?.toString() ?? '',
+              business_type: 'Restaurant',
+            },
+          })
+        } catch {
+          Alert.alert('Error', 'Could not open this business')
+        }
+      }}
+    >
       <Text style={styles.recName} numberOfLines={1}>{rec.business_name}</Text>
       <View style={styles.recRating}>
         <Text style={{ color: '#FFB800', fontSize: 13, fontWeight: '600' }}>
@@ -287,20 +315,7 @@ export default function HomeScreen() {
             contentContainerStyle={{ paddingLeft: 20, paddingRight: 8 }}
           >
             {recommendations.map((rec, idx) => (
-              <RecommendationCard
-                key={idx}
-                rec={rec}
-                onPress={() => router.push({
-                  pathname: '/review/networks',
-                  params: {
-                    listing_id: rec.business_id,
-                    business_name: rec.business_name,
-                    address: '',
-                    rating: '',
-                    business_type: 'Restaurant',
-                  },
-                })}
-              />
+              <RecommendationCard key={idx} rec={rec} />
             ))}
           </ScrollView>
         </>
