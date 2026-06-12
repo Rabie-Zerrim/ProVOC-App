@@ -100,6 +100,7 @@ export default function HomeScreen() {
   const [nearby, setNearby] = useState<NearbyItem[]>([])
   const [nearbyLoading, setNearbyLoading] = useState(true)
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null)
+  const [recommendations, setRecommendations] = useState<any[]>([])
 
   // Reload everything whenever the tab is focused
   useFocusEffect(
@@ -119,6 +120,12 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadNearby()
+  }, [])
+
+  useEffect(() => {
+    api.get('/recommendations')
+      .then(({ data }) => setRecommendations(Array.isArray(data) ? data : (data?.data ?? [])))
+      .catch(() => setRecommendations([]))
   }, [])
 
   const handleLongPress = (draft: DraftReview) => setSheetDraft(draft)
@@ -242,6 +249,33 @@ export default function HomeScreen() {
             <NearbyCard key={biz.id} biz={biz} onPress={() => router.push('/search')} />
           ))}
         </ScrollView>
+      )}
+
+      {/* Recommended For You */}
+      {recommendations.length > 0 && (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>✨ Recommended For You</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.recScroll}
+            contentContainerStyle={{ paddingLeft: 20, paddingRight: 8 }}
+          >
+            {recommendations.map((rec, idx) => (
+              <View key={idx} style={styles.recCard}>
+                <Text style={styles.recName} numberOfLines={1}>{rec.business_name}</Text>
+                <View style={styles.recRating}>
+                  <Text style={{ color: '#FFB800', fontSize: 13, fontWeight: '600' }}>
+                    ⭐ {rec.rating?.toFixed(1) ?? '—'}
+                  </Text>
+                </View>
+                <Text style={styles.recScore}>{Math.round((rec.score ?? 0) * 100)}% match</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </>
       )}
 
       {/* CTA card */}
@@ -497,4 +531,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: 'center',
   },
   sheetCancelText: { color: '#8B9099', fontSize: 15, fontWeight: '600' },
+
+  recScroll: { marginBottom: 24 },
+  recCard: {
+    width: 140, backgroundColor: '#1A1F2E', borderRadius: 14,
+    padding: 14, marginRight: 12, justifyContent: 'space-between',
+  },
+  recName: { color: '#fff', fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  recRating: { marginBottom: 6 },
+  recScore: { color: '#40916C', fontSize: 11, fontWeight: '700' },
 })
