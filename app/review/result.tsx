@@ -8,6 +8,7 @@ import { Ionicons, FontAwesome } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
 import { Linking } from 'react-native'
+import InAppBrowser from 'react-native-inappbrowser-reborn'
 import api from '../../services/api'
 import { resolveGooglePlaceId } from '../../services/googlePlaces'
 import { usePlacePhoto } from '../../hooks/usePlacePhoto'
@@ -57,7 +58,6 @@ export default function ResultScreen() {
     try { return params.breakdown ? JSON.parse(params.breakdown) : {} } catch { return {} }
   })
   const [editableRating, setEditableRating] = useState(Number(params.rating) || 4)
-  const [testUrl, setTestUrl] = useState('https://www.google.com/maps?cid=355590781634030131')
 
   useEffect(() => {
     if (!params.review_id) { setLoading(false); return }
@@ -79,6 +79,53 @@ export default function ResultScreen() {
   const setSubRating = (platform: string, sub: string, val: number) =>
     setBreakdown((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? {}), [sub]: val } }))
 
+  const handleMarkAsPosted = async () => {
+    try {
+      await api.patch(`/reviews/${params.review_id}`, { status: 'published' })
+    } catch {
+      // Silent fail — not critical
+    }
+  }
+
+  const handleGooglePost = async (url: string, reviewText: string) => {
+    try {
+      await Clipboard.setStringAsync(reviewText)
+      if (await InAppBrowser.isAvailable()) {
+        await InAppBrowser.open(url, {
+          showTitle: true,
+          toolbarColor: '#1a1a2e',
+          secondaryToolbarColor: '#1a1a2e',
+          navigationBarColor: '#1a1a2e',
+          navigationBarDividerColor: 'white',
+          enableUrlBarHiding: true,
+          enableDefaultShare: false,
+          forceCloseOnRedirection: false,
+          showInRecents: true,
+          dismissButtonStyle: 'cancel',
+          preferredBarTintColor: '#1a1a2e',
+          preferredControlTintColor: 'white',
+          readerMode: false,
+          animated: true,
+          modalEnabled: true,
+        })
+        Alert.alert(
+          'Did you post the review?',
+          'Your review was copied to clipboard.',
+          [
+            { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
+            { text: 'Not yet', style: 'cancel' },
+          ]
+        )
+      } else {
+        await Clipboard.setStringAsync(reviewText)
+        await Linking.openURL(url)
+      }
+    } catch {
+      await Clipboard.setStringAsync(reviewText)
+      await Linking.openURL(url)
+    }
+  }
+
   const handlePost = async (networkId: string, platformSlug: string, platformName: string) => {
     if (!review) return
     setPosting(networkId)
@@ -88,27 +135,18 @@ export default function ResultScreen() {
       const reviewText = data.review_text ?? review.review_text
 
       if (platformSlug === 'google') {
-        // Copy silently as fallback, then open WebView to auto-fill & submit
-        await Clipboard.setStringAsync(reviewText)
-        const platformBreakdown = breakdown[platformName] ?? {}
-
         // Resolve Google review URL from multiple sources (publish-link often returns null)
         const listingNet = networks.find(n => n.network_id === networkId)
         let rawUrl = data.url || listingNet?.url || review.listing?.external_url || ''
-
-        console.log('listing_id param:', params.listing_id)
-        console.log('review.listing_id:', review.listing_id)
-        console.log('networks:', JSON.stringify(networks))
 
         // Fetch the listing directly to get the saved external_url
         const listingId = params.listing_id || review.listing_id || review.listing?.listing_id
         if (!rawUrl && listingId) {
           try {
             const { data: listingData } = await api.get(`/listings/${listingId}`)
-            console.log('Listing API response:', JSON.stringify(listingData))
             rawUrl = listingData.external_url ?? ''
-          } catch (e) {
-            console.log('Could not fetch listing:', e)
+          } catch {
+            // ignore
           }
         }
 
@@ -118,7 +156,6 @@ export default function ResultScreen() {
           const isGooglePlaceId = extId && !extId.startsWith('osm-') && !extId.startsWith('fb-') && !extId.startsWith('yelp-') && !extId.startsWith('ta-')
           if (isGooglePlaceId) {
             rawUrl = `https://search.google.com/local/writereview?placeid=${extId}`
-            console.log('Built write-review URL from Place ID:', rawUrl)
           }
         }
 
@@ -128,37 +165,21 @@ export default function ResultScreen() {
           const placeId = await resolveGooglePlaceId(businessName, bizAddress)
           if (placeId) {
             rawUrl = `https://search.google.com/local/writereview?placeid=${placeId}`
-            console.log('Google Places API resolved Place ID:', placeId)
           }
         }
 
-        // Absolute fallback: load Maps CID page and let WebView hook extract Place ID
+        // Absolute fallback: Maps search
         if (!rawUrl) {
           const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
           rawUrl = `https://www.google.com/maps/search/?api=1&query=${q}`
-          console.log('Using Google Maps search fallback — Places API returned nothing')
         }
 
-        // Convert /local/reviews?placeid= → /local/writereview?placeid= to land on the write form
         const reviewUrl = rawUrl.replace(
           'search.google.com/local/reviews?',
           'search.google.com/local/writereview?',
         )
-        console.log('Google WebView URL resolved to:', reviewUrl)
 
-        router.push({
-          pathname: '/review/webview-post',
-          params: {
-            review_url:        reviewUrl,
-            review_text:       reviewText,
-            rating:            String(Math.round(editableRating)),
-            food_rating:       platformBreakdown['Food']       ? String(platformBreakdown['Food'])       : '',
-            service_rating:    platformBreakdown['Service']    ? String(platformBreakdown['Service'])    : '',
-            atmosphere_rating: platformBreakdown['Atmosphere'] ? String(platformBreakdown['Atmosphere']) : '',
-            business_name:     businessName,
-            review_id:         review.review_id,
-          },
-        })
+        await handleGooglePost(reviewUrl, reviewText)
       } else {
         await Clipboard.setStringAsync(reviewText)
         const url: string = data.url ?? ''
@@ -454,43 +475,6 @@ export default function ResultScreen() {
           )}
         </TouchableOpacity>
 
-        {/* ── DEV: WebView test card ── */}
-        <View style={styles.devCard}>
-          <Text style={styles.devLabel}>DEV — Test WebView Post</Text>
-          <Text style={styles.devHint}>
-            {'1. Open Google Maps in browser\n2. Find any business → Write a review\n3. Copy the URL → paste below'}
-          </Text>
-          <TextInput
-            style={styles.devInput}
-            placeholder="https://search.google.com/local/writereview?placeid=ChIJ..."
-            placeholderTextColor="#555"
-            value={testUrl}
-            onChangeText={setTestUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity
-            style={[styles.devBtn, !testUrl.trim() && { opacity: 0.4 }]}
-            disabled={!testUrl.trim()}
-            onPress={() => router.push({
-              pathname: '/review/webview-post',
-              params: {
-                review_url:        testUrl.trim(),
-                review_text:       review?.review_text ?? 'Test review text for the WebView auto-fill.',
-                rating:            String(Math.round(editableRating)),
-                food_rating:       '',
-                service_rating:    '',
-                atmosphere_rating: '',
-                business_name:     businessName,
-                review_id:         review?.review_id ?? '',
-              },
-            })}
-          >
-            <Ionicons name="logo-google" size={14} color="#fff" />
-            <Text style={styles.devBtnText}>Launch WebView Post</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Platform cards */}
         {networks.length > 0 ? (
           networks.map((net) =>
@@ -504,16 +488,16 @@ export default function ResultScreen() {
           renderPlatformCard(
             'google-maps', 'google', 'Google',
             async () => {
-              await Clipboard.setStringAsync(review?.review_text ?? '')
-              const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
-              Alert.alert(
-                '✓ Review copied!',
-                'On Google Maps:\n1. Find the business\n2. Tap "Write a review"\n3. Set your star rating\n4. Paste the text',
-                [
-                  { text: 'Open Google Maps', onPress: () => Linking.openURL(`https://maps.google.com/?q=${q}`) },
-                  { text: 'Later', style: 'cancel' },
-                ]
-              )
+              const extId = review?.listing?.external_listing_id ?? ''
+              const isGooglePlaceId = extId && !extId.startsWith('osm-') && !extId.startsWith('fb-') && !extId.startsWith('yelp-') && !extId.startsWith('ta-')
+              let fallbackUrl: string
+              if (isGooglePlaceId) {
+                fallbackUrl = `https://search.google.com/local/writereview?placeid=${extId}`
+              } else {
+                const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
+                fallbackUrl = `https://www.google.com/maps/search/?api=1&query=${q}`
+              }
+              await handleGooglePost(fallbackUrl, review?.review_text ?? '')
             },
             false,
           )
@@ -660,19 +644,4 @@ const styles = StyleSheet.create({
   },
   btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  devCard: {
-    backgroundColor: '#1A1F2E', borderRadius: 12, marginHorizontal: 20, marginBottom: 14,
-    padding: 14, borderWidth: 1, borderColor: '#FFB80044',
-  },
-  devLabel: { color: '#FFB800', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6 },
-  devHint: { color: '#8B9099', fontSize: 12, lineHeight: 18, marginBottom: 10 },
-  devInput: {
-    backgroundColor: '#0D0D0D', borderRadius: 8, borderWidth: 1, borderColor: '#2A3045',
-    color: '#fff', fontSize: 12, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 10,
-  },
-  devBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#2D6A4F', borderRadius: 8, paddingVertical: 10,
-  },
-  devBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 })
