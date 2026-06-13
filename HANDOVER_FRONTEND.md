@@ -802,4 +802,61 @@ Because posting opens the system browser (not a WebView), users can freely switc
 `photo_reference` is only present in search results when the backend's Zembra/Google Places response includes it. For OSM nearby results (category chip search), `photo_reference` is never present — `getBizPhoto` fallback images are used instead.
 
 ### WebView screen (`app/review/webview-post.tsx`)
-This file exists in the repo but is dead code as of 2026-06-12. No screen navigates to it. It can be deleted safely. If re-enabling WebView posting is ever attempted, note that it requires a Custom Tab (Android) or `SFSafariViewController` (iOS) rather than a plain `WebView` to pass Google's browser identity checks.
+~~This file exists in the repo but is dead code as of 2026-06-12.~~ **Deleted as of 2026-06-13.** Google posting now uses Chrome Custom Tabs via `react-native-inappbrowser-reborn` (see section 18, fix 42). `react-native-webview` can be removed from `package.json` if not used elsewhere.
+
+---
+
+## 18. Applied Fixes (2026-06-13)
+
+| # | File | What changed |
+|---|---|---|
+| 39 | `app/(tabs)/home.tsx` | **FEATURE — "Recommended For You" section.** Added `recommendations` state + `useEffect` that calls `GET /recommendations` (pv-bff) on mount. Renders a horizontal scroll section above the CTA card, hidden when the array is empty (cold start / no data). |
+| 40 | `hooks/usePlaceRating.ts` (new) | **New hook — live Google rating per Place ID.** Calls `https://places.googleapis.com/v1/places/{placeId}?fields=rating&key=...` (Google Places New API). Only fires for valid `ChIJ…` Place IDs. Returns `number \| null`. Same guard pattern as `usePlacePhoto`. |
+| 41 | `app/(tabs)/home.tsx` | **`RecommendationCard` component — full review flow tap.** Each recommendation card calls `usePlaceRating(rec.business_id)` to display a live Google rating. `onPress` is async: first calls `POST /listings` with `external_listing_id: rec.business_id` to create/retrieve a BFF listing record, then navigates to `/review/networks` with the returned BFF UUID as `listing_id`. Falls back to `Alert` on error. This exactly mirrors the search flow — Google Place ID never passed directly as `listing_id`. `useRouter()` is called inside the component so it has access to the `rating` value from the hook. |
+| 42 | `app/review/result.tsx` + `app/review/webview-post.tsx` (deleted) | **FEATURE — Google posting via Chrome Custom Tab (InAppBrowser).** Replaced `Linking.openURL` (external browser) with `react-native-inappbrowser-reborn`. `handleGooglePost(url, reviewText)`: copies review text to clipboard, then opens the Google review URL inside ProVOC using a Chrome Custom Tab (stays within the app, uses the device's signed-in Google account). `handleMarkAsPosted()`: PATCHes `/reviews/:id` `{ status: 'published' }` when user manually confirms posting. Falls back to `Linking.openURL` if `InAppBrowser.isAvailable()` returns false (e.g. iOS without Safari). `webview-post.tsx` deleted. |
+| 43 | `.gitignore` | **`.env` added to `.gitignore`.** The `.env` file contained `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` and was previously tracked by git. It is now excluded. Developers must create `.env` locally from `.env.example` (or manually). EAS builds must inject the key via EAS Secrets or `eas.json` `env` block. |
+
+**Dependencies added (2026-06-13):**
+- `react-native-inappbrowser-reborn` — Chrome Custom Tabs (Android) / SFSafariViewController (iOS). Required for Google posting fix 42.
+
+**Dependencies now unused:**
+- `react-native-webview@13.15.0` — added for the original WebView auto-post attempt (fix 30). Can be removed from `package.json` since `webview-post.tsx` was deleted.
+
+---
+
+## 19. APK Build Notes
+
+### When a rebuild is required
+
+| Change type | Rebuild needed? |
+|---|---|
+| Frontend JS/TSX code changes (new features, bug fixes, UI) | **Yes** — Metro bundles must be recompiled into the APK |
+| New npm package added | **Yes** — native modules require a new native build |
+| Backend-only change (pv-bff or pv-ai on Railway) | **No** — the app connects to the same API URL; no rebuild |
+| `.env` / EAS Secret change | **Yes** — `EXPO_PUBLIC_*` vars are baked in at build time |
+
+### All 2026-06-12 and 2026-06-13 frontend changes require a new APK
+
+Changes requiring rebuild (in order of implementation):
+- Search: `q` + `lat`/`lng` params, `photo_reference` direct URL, network badge normalization
+- Networks: Google label normalization
+- Home: Recommended For You section, `usePlaceRating` hook
+- Result: Chrome Custom Tab posting (`react-native-inappbrowser-reborn` native module)
+
+### Building with EAS
+
+```bash
+# Free tier — queue can take 40–60+ minutes
+eas build --platform android --profile preview
+
+# Check build status
+eas build:list
+```
+
+Set `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in EAS Secrets before building:
+```bash
+eas secret:create --scope project --name EXPO_PUBLIC_GOOGLE_PLACES_API_KEY --value <key>
+```
+
+### Latest APK
+[paste new URL here after EAS build completes]
