@@ -283,22 +283,20 @@ export default function SearchScreen() {
     name: string, address: string,
     primarySlug: string, businessId: string,
   ): Promise<string[]> => {
-    const otherSlugs = activeNetworkSlugsRef.current.filter((s) => s !== primarySlug)
-    const qs = new URLSearchParams({ name, address })
-    otherSlugs.forEach((s) => qs.append('networks[]', s))
     try {
-      const { data: zData } = await api.get(`/listings/search?${qs.toString()}`)
-      const nd: Record<string, any> = zData?.data ?? zData
+      const qs = new URLSearchParams({ name, address })
+      const { data: zData } = await api.get(`/zembra/match?${qs.toString()}`)
+      const nd: Record<string, { url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
       await Promise.allSettled(
         Object.entries(nd)
-          .filter(([, e]) => e?.id)
+          .filter(([slug]) => slug !== primarySlug && activeNetworkSlugsRef.current.includes(slug))
           .map(([slug, e]) =>
             api.post('/listings', {
-              external_listing_id: e.id,
+              external_listing_id: `zembra-${slug}-${businessId}`,
               external_url: e.url ?? '',
-              name: e.name ?? name,
-              address: e.formattedAddress ?? address,
-              external_rating: e.globalRating ?? 0,
+              name,
+              address,
+              external_rating: e.rating ?? 0,
               network: slug,
               business_id: businessId,
             }),
@@ -318,42 +316,39 @@ export default function SearchScreen() {
       if (item.network === 'osm') {
         // Try Zembra match for all platforms using the OSM business name + address
         let zembraRating = 0
-        let zembraAddress = item.data.formattedAddress
-        let primarySlug = 'google'
+        const zembraAddress = item.data.formattedAddress
         try {
           const qs = new URLSearchParams({ name: item.data.name, address: item.data.formattedAddress })
-          activeNetworkSlugsRef.current.forEach((s) => qs.append('networks[]', s))
-          const { data: zData } = await api.get(`/listings/search?${qs.toString()}`)
-          const nd: Record<string, any> = zData?.data ?? zData
-          // Pick first found platform as primary
-          const primaryEntry = Object.entries(nd).find(([, e]) => e?.id)
+          const { data: zData } = await api.get(`/zembra/match?${qs.toString()}`)
+          const nd: Record<string, { url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
+          // Pick first found platform as primary (google sorts first when present)
+          const candidates = Object.entries(nd).filter(([slug]) => activeNetworkSlugsRef.current.includes(slug))
+          const primaryEntry = candidates[0]
           if (primaryEntry) {
             const [slug, entry] = primaryEntry
-            primarySlug = slug
             const { data } = await api.post('/listings', {
-              external_listing_id: entry.id,
+              external_listing_id: `zembra-${slug}-osm-${item.data.id}`,
               external_url: entry.url ?? '',
-              name: entry.name ?? item.data.name,
-              address: entry.formattedAddress ?? item.data.formattedAddress,
-              external_rating: entry.globalRating ?? 0,
+              name: item.data.name,
+              address: item.data.formattedAddress,
+              external_rating: entry.rating ?? 0,
               network: slug,
             })
             listingId = data.listing_id ?? data.id
-            zembraRating = entry.globalRating ?? 0
-            zembraAddress = entry.formattedAddress ?? item.data.formattedAddress
+            zembraRating = entry.rating ?? 0
             // Save remaining platforms under the same business
             const businessId = data.business?.business_id ?? data.business_id
             if (businessId) {
               await Promise.allSettled(
-                Object.entries(nd)
-                  .filter(([s, e]) => s !== slug && e?.id)
+                candidates
+                  .filter(([s]) => s !== slug)
                   .map(([s, e]) =>
                     api.post('/listings', {
-                      external_listing_id: e.id,
+                      external_listing_id: `zembra-${s}-${businessId}`,
                       external_url: e.url ?? '',
-                      name: e.name ?? item.data.name,
-                      address: e.formattedAddress ?? item.data.formattedAddress,
-                      external_rating: e.globalRating ?? 0,
+                      name: item.data.name,
+                      address: item.data.formattedAddress,
+                      external_rating: e.rating ?? 0,
                       network: s,
                       business_id: businessId,
                     }),
