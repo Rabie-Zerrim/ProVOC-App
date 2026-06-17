@@ -92,8 +92,8 @@ export default function RecordingScreen() {
       const response = await withNetworkErrorRetry(() => api.post(
         `/reviews/${reviewId}/transcribe`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
-      ))
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 }
+      ), { retryOnTimeout: false })
       const transcript = response.data.text ?? response.data.transcript ?? ''
       if (params.review_id) {
         // Already in an existing chat — go back and inject the transcript there
@@ -185,7 +185,7 @@ export default function RecordingScreen() {
         </Text>
         {uploading && (
           <Text style={styles.uploadingHint}>
-            Uploading and transcribing... this can take up to a minute
+            Uploading and transcribing... this can take up to 3 minutes
           </Text>
         )}
       </View>

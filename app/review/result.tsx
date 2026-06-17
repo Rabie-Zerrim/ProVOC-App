@@ -120,6 +120,14 @@ export default function ResultScreen() {
       } else {
         await Clipboard.setStringAsync(reviewText)
         await Linking.openURL(url)
+        Alert.alert(
+          'Did you post the review?',
+          'Your review was copied to clipboard.',
+          [
+            { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
+            { text: 'Not yet', style: 'cancel' },
+          ]
+        )
       }
     } catch {
       await Clipboard.setStringAsync(reviewText)
