@@ -52,6 +52,13 @@ export default function ProfileScreen() {
   const [editEmail, setEditEmail] = useState('')
   const [profileError, setProfileError] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
+  const [editingPassword, setEditingPassword] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [currentPasswordError, setCurrentPasswordError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -191,6 +198,59 @@ export default function ProfileScreen() {
     }
   }
 
+  const startEditingPassword = () => {
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setCurrentPasswordError('')
+    setPasswordError('')
+    setEditingPassword(true)
+  }
+
+  const cancelEditingPassword = () => {
+    setEditingPassword(false)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setCurrentPasswordError('')
+    setPasswordError('')
+  }
+
+  const handleSavePassword = async () => {
+    setCurrentPasswordError('')
+    setPasswordError('')
+
+    if (newPassword.length < 8) {
+      setPasswordError('Password must be at least 8 characters.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match.')
+      return
+    }
+
+    setSavingPassword(true)
+    try {
+      await api.patch('/users/me/password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      setEditingPassword(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      Alert.alert('Password changed', 'Your password has been updated.')
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        setCurrentPasswordError('Current password is incorrect.')
+      } else {
+        setPasswordError('Could not change password. Please try again.')
+      }
+    } finally {
+      setSavingPassword(false)
+    }
+  }
+
   const togglePlatform = async (key: string, val: boolean) => {
     const next = { ...enabledPlatforms, [key]: val }
     setEnabledPlatforms(next)
@@ -311,6 +371,64 @@ export default function ProfileScreen() {
         )}
       </View>
 
+      {/* Change password */}
+      <View style={styles.section}>
+        {editingPassword ? (
+          <View>
+            <Text style={styles.sectionTitle}>Change password</Text>
+            <TextInput
+              style={styles.profileInput}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="Current password"
+              placeholderTextColor="#8B9099"
+              secureTextEntry
+              autoFocus
+            />
+            {!!currentPasswordError && <Text style={styles.profileError}>{currentPasswordError}</Text>}
+            <TextInput
+              style={styles.profileInput}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="New password"
+              placeholderTextColor="#8B9099"
+              secureTextEntry
+            />
+            <TextInput
+              style={styles.profileInput}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Confirm new password"
+              placeholderTextColor="#8B9099"
+              secureTextEntry
+            />
+            {!!passwordError && <Text style={styles.profileError}>{passwordError}</Text>}
+            <View style={styles.profileEditActions}>
+              <TouchableOpacity onPress={cancelEditingPassword} style={styles.profileCancelBtn} disabled={savingPassword}>
+                <Ionicons name="close" size={14} color="#8B9099" />
+                <Text style={styles.profileCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSavePassword} style={styles.profileSaveBtn} disabled={savingPassword}>
+                {savingPassword ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={14} color="#fff" />
+                    <Text style={styles.profileSaveText}>Save</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity style={styles.changePasswordRow} onPress={startEditingPassword}>
+            <Ionicons name="lock-closed-outline" size={18} color="#8B9099" />
+            <Text style={styles.changePasswordText}>Change password</Text>
+            <Ionicons name="chevron-forward" size={16} color="#8B9099" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Stats row */}
       <View style={styles.statsRow}>
         {[
@@ -388,6 +506,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2D6A4F', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
   },
   profileSaveText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+
+  changePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  changePasswordText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: { flex: 1, backgroundColor: '#1A1F2E', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
