@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import api from '../services/api'
+import { withNetworkErrorRetry } from '../utils/withNetworkErrorRetry'
 
 type Mode = 'login' | 'register'
 
@@ -50,7 +51,16 @@ export default function AuthScreen() {
       const { data } = await api.post(endpoint, body)
       await AsyncStorage.setItem('@provoc_token', data.access_token)
       if (data.user) {
-        await AsyncStorage.setItem('@provoc_user', JSON.stringify(data.user))
+        // /auth/login and /auth/register only return a minimal user shape
+        // (no avatar_data, etc). Fetch the full profile from /auth/me so the
+        // cache is complete from the start; fall back to the minimal shape
+        // if that extra call fails — never block login on it.
+        try {
+          const { data: me } = await withNetworkErrorRetry(() => api.get('/auth/me'))
+          await AsyncStorage.setItem('@provoc_user', JSON.stringify(me))
+        } catch {
+          await AsyncStorage.setItem('@provoc_user', JSON.stringify(data.user))
+        }
       }
       router.replace('/(tabs)/home')
     } catch (err: any) {

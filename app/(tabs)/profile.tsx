@@ -60,7 +60,7 @@ export default function ProfileScreen() {
       if (raw) {
         cachedUser = JSON.parse(raw)
         setUser(cachedUser)
-        if (!cachedUser?.display_name) fetchMe()
+        if (!cachedUser?.display_name || cachedUser.avatar_data === undefined) fetchMe()
       } else {
         fetchMe()
       }
