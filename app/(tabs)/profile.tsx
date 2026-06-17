@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, Switch, Image,
+  ActivityIndicator, Alert, Switch, Image, TextInput,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
@@ -9,8 +9,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import api from '../../services/api'
+import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
-type User = { user_id: string; email: string; display_name: string }
+type User = { user_id: string; email: string; display_name: string; avatar_data?: string | null }
 
 type Stats = { average_rating: number | null; this_month: number; last_month: number }
 
@@ -46,21 +47,34 @@ export default function ProfileScreen() {
     google: true, yelp: true, tripadvisor: false, facebook: false, trustpilot: false,
   })
   const [avatarUri, setAvatarUri] = useState<string | null>(null)
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [profileError, setProfileError] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       const raw = await AsyncStorage.getItem('@provoc_user')
+      let cachedUser: User | null = null
       if (raw) {
-        const stored = JSON.parse(raw)
-        setUser(stored)
-        if (!stored.display_name) fetchMe()
+        cachedUser = JSON.parse(raw)
+        setUser(cachedUser)
+        if (!cachedUser?.display_name) fetchMe()
       } else {
         fetchMe()
       }
       const plRaw = await AsyncStorage.getItem(PLATFORMS_KEY)
       if (plRaw) setEnabledPlatforms(JSON.parse(plRaw))
+      // avatar_data from the synced user record is the real source of truth;
+      // the local AsyncStorage avatar is only a fallback for offline-first
+      // display or for users cached before this field existed.
       const savedAvatar = await AsyncStorage.getItem(AVATAR_KEY)
-      if (savedAvatar) setAvatarUri(savedAvatar)
+      if (cachedUser?.avatar_data) {
+        setAvatarUri(cachedUser.avatar_data)
+      } else if (savedAvatar) {
+        setAvatarUri(savedAvatar)
+      }
     }
     load()
   }, [])
@@ -70,6 +84,10 @@ export default function ProfileScreen() {
       const { data } = await api.get('/auth/me')
       setUser(data)
       await AsyncStorage.setItem('@provoc_user', JSON.stringify(data))
+      if (data.avatar_data) {
+        setAvatarUri(data.avatar_data)
+        await AsyncStorage.setItem(AVATAR_KEY, data.avatar_data)
+      }
     } catch {}
   }
 
@@ -87,6 +105,20 @@ export default function ProfileScreen() {
       .finally(() => setLoading(false))
   }, [])
 
+  // preferred_networks is the list of currently ENABLED platform slugs
+  // (toggle ON = included in the array), per UpdatePreferencesDto.
+  useEffect(() => {
+    api.get('/users/me/preferences')
+      .then(({ data }) => {
+        const enabled: string[] = data?.preferred_networks ?? []
+        const next: Record<string, boolean> = {}
+        PLATFORMS.forEach((p) => { next[p.key] = enabled.includes(p.key) })
+        setEnabledPlatforms(next)
+        AsyncStorage.setItem(PLATFORMS_KEY, JSON.stringify(next))
+      })
+      .catch(() => {})
+  }, [])
+
   const pickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (status !== 'granted') {
@@ -98,11 +130,64 @@ export default function ProfileScreen() {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
+      base64: true,
     })
-    if (!result.canceled && result.assets[0]?.uri) {
-      const uri = result.assets[0].uri
-      setAvatarUri(uri)
-      await AsyncStorage.setItem(AVATAR_KEY, uri)
+    if (result.canceled || !result.assets[0]?.base64) return
+    const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`
+    try {
+      await api.patch('/users/me/avatar', { avatar_data: dataUri })
+      setAvatarUri(dataUri)
+      await AsyncStorage.setItem(AVATAR_KEY, dataUri)
+      if (user) {
+        const updatedUser = { ...user, avatar_data: dataUri }
+        setUser(updatedUser)
+        await AsyncStorage.setItem('@provoc_user', JSON.stringify(updatedUser))
+      }
+    } catch {
+      Alert.alert('Could not update avatar', 'Please try again.')
+    }
+  }
+
+  const startEditingProfile = () => {
+    setEditName(user?.display_name ?? '')
+    setEditEmail(user?.email ?? '')
+    setProfileError('')
+    setEditingProfile(true)
+  }
+
+  const cancelEditingProfile = () => {
+    setEditingProfile(false)
+    setProfileError('')
+  }
+
+  const handleSaveProfile = async () => {
+    const trimmedName = editName.trim()
+    const trimmedEmail = editEmail.trim()
+    const payload: { display_name?: string; email?: string } = {}
+    if (trimmedName && trimmedName !== user?.display_name) payload.display_name = trimmedName
+    if (trimmedEmail && trimmedEmail !== user?.email) payload.email = trimmedEmail
+
+    if (Object.keys(payload).length === 0) {
+      setEditingProfile(false)
+      return
+    }
+
+    setProfileError('')
+    setSavingProfile(true)
+    try {
+      const { data } = await api.patch('/users/me', payload)
+      const updatedUser = { ...user, ...data }
+      setUser(updatedUser)
+      await AsyncStorage.setItem('@provoc_user', JSON.stringify(updatedUser))
+      setEditingProfile(false)
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        setProfileError('That email is already in use.')
+      } else {
+        setProfileError('Could not save changes. Please try again.')
+      }
+    } finally {
+      setSavingProfile(false)
     }
   }
 
@@ -110,6 +195,13 @@ export default function ProfileScreen() {
     const next = { ...enabledPlatforms, [key]: val }
     setEnabledPlatforms(next)
     await AsyncStorage.setItem(PLATFORMS_KEY, JSON.stringify(next))
+    const enabledSlugs = PLATFORMS.filter((p) => next[p.key]).map((p) => p.key)
+    try {
+      await withNetworkErrorRetry(() => api.patch('/users/me/preferences', { preferred_networks: enabledSlugs }))
+    } catch {
+      // Soft-fail — local toggle already applied; next preferences fetch
+      // will reconcile if this write didn't actually stick server-side.
+    }
   }
 
   const handleLogout = () => {
@@ -163,12 +255,60 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <View style={styles.userInfo}>
-          <Text style={styles.userName}>{user?.display_name || user?.email || '—'}</Text>
-          <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
+          {editingProfile ? (
+            <View>
+              <TextInput
+                style={styles.profileInput}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Display name"
+                placeholderTextColor="#8B9099"
+                autoFocus
+              />
+              <TextInput
+                style={styles.profileInput}
+                value={editEmail}
+                onChangeText={setEditEmail}
+                placeholder="Email"
+                placeholderTextColor="#8B9099"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              {!!profileError && <Text style={styles.profileError}>{profileError}</Text>}
+              <View style={styles.profileEditActions}>
+                <TouchableOpacity onPress={cancelEditingProfile} style={styles.profileCancelBtn} disabled={savingProfile}>
+                  <Ionicons name="close" size={14} color="#8B9099" />
+                  <Text style={styles.profileCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSaveProfile} style={styles.profileSaveBtn} disabled={savingProfile}>
+                  {savingProfile ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                      <Text style={styles.profileSaveText}>Save</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.userNameRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userName}>{user?.display_name || user?.email || '—'}</Text>
+                <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
+              </View>
+              <TouchableOpacity onPress={startEditingProfile} hitSlop={8}>
+                <Ionicons name="create-outline" size={16} color="#8B9099" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-          <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-        </TouchableOpacity>
+        {!editingProfile && (
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stats row */}
@@ -226,9 +366,28 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#1A1F2E',
   },
   userInfo: { flex: 1 },
+  userNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   userName: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
   userEmail: { color: '#8B9099', fontSize: 12 },
   logoutBtn: { padding: 8 },
+
+  profileInput: {
+    color: '#fff', fontSize: 14, backgroundColor: '#0D0D0D', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8,
+    borderWidth: 1, borderColor: '#2D6A4F',
+  },
+  profileError: { color: '#EF4444', fontSize: 12, marginBottom: 8 },
+  profileEditActions: { flexDirection: 'row', gap: 8 },
+  profileCancelBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#0D0D0D', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
+  },
+  profileCancelText: { color: '#8B9099', fontSize: 12, fontWeight: '600' },
+  profileSaveBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#2D6A4F', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
+  },
+  profileSaveText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   statCard: { flex: 1, backgroundColor: '#1A1F2E', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
