@@ -133,6 +133,8 @@ export default function SearchScreen() {
   const [usingOSM, setUsingOSM] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeNetworkSlugsRef = useRef<string[]>(FALLBACK_SLUGS)
+  const isSelectingRef = useRef(false)
+  const isHistorySelectingRef = useRef(false)
 
   useEffect(() => {
     AsyncStorage.getItem(HISTORY_KEY).then((raw) => {
@@ -313,7 +315,8 @@ export default function SearchScreen() {
   }
 
   const handleSelect = async (item: ResultItem) => {
-    if (saving) return
+    if (isSelectingRef.current) return
+    isSelectingRef.current = true
     setSaving(true)
     try {
       let listingId: string | undefined
@@ -452,11 +455,18 @@ export default function SearchScreen() {
         })
       }
     } finally {
+      isSelectingRef.current = false
       setSaving(false)
     }
   }
 
   const handleHistorySelect = (h: HistoryItem) => {
+    if (isHistorySelectingRef.current) return
+    isHistorySelectingRef.current = true
+    // Not reset: router.push navigates away and unmounts this screen, so a
+    // stale "true" here is harmless — resetting it synchronously would defeat
+    // the guard, since a second back-to-back onPress dispatch runs as a
+    // separate event after this function has already returned.
     router.push({
       pathname: '/review/networks',
       params: {
