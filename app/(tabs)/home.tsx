@@ -12,7 +12,7 @@ import { getBizPhoto } from '../../utils/bizPhoto'
 import { usePlacePhoto } from '../../hooks/usePlacePhoto'
 import { usePlaceRating } from '../../hooks/usePlaceRating'
 
-type User = { user_id: string; email: string; display_name: string }
+type User = { user_id: string; email: string; display_name: string; avatar_data?: string | null }
 type DraftReview = {
   review_id: string
   rating: number
@@ -151,8 +151,14 @@ export default function HomeScreen() {
     useCallback(() => {
       AsyncStorage.multiGet(['@provoc_user', '@provoc_avatar', '@provoc_pinned_drafts']).then(
         ([[, userRaw], [, avatar], [, pinnedRaw]]) => {
-          if (userRaw) setUser(JSON.parse(userRaw))
-          setAvatarUri(avatar ?? null)
+          let parsedUser: User | null = null
+          if (userRaw) {
+            parsedUser = JSON.parse(userRaw)
+            setUser(parsedUser)
+          }
+          // avatar_data from the synced user record is the real source of
+          // truth; @provoc_avatar is only a fallback (see profile.tsx).
+          setAvatarUri(parsedUser?.avatar_data ?? avatar ?? null)
           if (pinnedRaw) setPinned(new Set(JSON.parse(pinnedRaw)))
         }
       )
