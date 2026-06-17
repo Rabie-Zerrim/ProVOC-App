@@ -422,7 +422,10 @@ export default function ResultScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Business header — TodayCard style */}
         <TodayCard
           businessName={businessName}

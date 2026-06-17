@@ -286,13 +286,14 @@ export default function SearchScreen() {
     try {
       const qs = new URLSearchParams({ name, address })
       const { data: zData } = await api.get(`/zembra/match?${qs.toString()}`)
-      const nd: Record<string, { url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
+      const nd: Record<string, { id: string | null; url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
       await Promise.allSettled(
         Object.entries(nd)
           .filter(([slug]) => slug !== primarySlug && activeNetworkSlugsRef.current.includes(slug))
           .map(([slug, e]) =>
             api.post('/listings', {
               external_listing_id: `zembra-${slug}-${businessId}`,
+              zembra_external_id: e.id ?? undefined,
               external_url: e.url ?? '',
               name,
               address,
@@ -320,7 +321,7 @@ export default function SearchScreen() {
         try {
           const qs = new URLSearchParams({ name: item.data.name, address: item.data.formattedAddress })
           const { data: zData } = await api.get(`/zembra/match?${qs.toString()}`)
-          const nd: Record<string, { url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
+          const nd: Record<string, { id: string | null; url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
           // Pick first found platform as primary (google sorts first when present)
           const candidates = Object.entries(nd).filter(([slug]) => activeNetworkSlugsRef.current.includes(slug))
           const primaryEntry = candidates[0]
@@ -328,6 +329,7 @@ export default function SearchScreen() {
             const [slug, entry] = primaryEntry
             const { data } = await api.post('/listings', {
               external_listing_id: `zembra-${slug}-osm-${item.data.id}`,
+              zembra_external_id: entry.id ?? undefined,
               external_url: entry.url ?? '',
               name: item.data.name,
               address: item.data.formattedAddress,
@@ -345,6 +347,7 @@ export default function SearchScreen() {
                   .map(([s, e]) =>
                     api.post('/listings', {
                       external_listing_id: `zembra-${s}-${businessId}`,
+                      zembra_external_id: e.id ?? undefined,
                       external_url: e.url ?? '',
                       name: item.data.name,
                       address: item.data.formattedAddress,
@@ -585,6 +588,7 @@ export default function SearchScreen() {
             renderItem={renderResult}
             contentContainerStyle={{ paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           />
         </>
       ) : query.length > 0 && !loading ? (
@@ -601,6 +605,7 @@ export default function SearchScreen() {
               keyExtractor={(h) => h.id}
               contentContainerStyle={{ paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               renderItem={({ item: h }) => (
                 <TouchableOpacity style={styles.historyItem} onPress={() => handleHistorySelect(h)}>
                   <View style={styles.historyIcon}>
