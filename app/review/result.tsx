@@ -47,6 +47,7 @@ export default function ResultScreen() {
     review_id: string; business_name: string; listing_id: string
     address: string; rating: string; business_type: string
     network_ids: string; breakdown: string; review_text: string
+    selected_networks?: string
   }>()
   const [review, setReview] = useState<Review | null>(null)
   const [loading, setLoading] = useState(true)
@@ -219,7 +220,16 @@ export default function ResultScreen() {
     </View>
   )
 
-  const networks = review?.listing?.networks ?? []
+  const allNetworks = review?.listing?.networks ?? []
+  let selectedSlugs: string[] | null = null
+  try {
+    selectedSlugs = params.selected_networks ? JSON.parse(params.selected_networks) : null
+  } catch {
+    selectedSlugs = null
+  }
+  const networks = selectedSlugs && selectedSlugs.length > 0
+    ? allNetworks.filter((n) => selectedSlugs!.includes(n.slug))
+    : allNetworks
   const reviewRating = review?.rating ?? Number(params.rating) ?? 4
   const sentiment = SENTIMENT_LABELS[Math.round(editableRating)] ?? SENTIMENT_LABELS[4]
   const businessName = review?.business?.name ?? review?.listing?.name ?? params.business_name ?? 'Business'
@@ -488,22 +498,10 @@ export default function ResultScreen() {
             )
           )
         ) : (
-          renderPlatformCard(
-            'google-maps', 'google', 'Google',
-            async () => {
-              const extId = review?.listing?.external_listing_id ?? ''
-              const isGooglePlaceId = extId && !extId.startsWith('osm-') && !extId.startsWith('fb-') && !extId.startsWith('yelp-') && !extId.startsWith('ta-')
-              let fallbackUrl: string
-              if (isGooglePlaceId) {
-                fallbackUrl = `https://search.google.com/local/writereview?placeid=${extId}`
-              } else {
-                const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
-                fallbackUrl = `https://www.google.com/maps/search/?api=1&query=${q}`
-              }
-              await handleGooglePost(fallbackUrl, review?.review_text ?? '')
-            },
-            false,
-          )
+          <View style={styles.emptyPlatformsBox}>
+            <Ionicons name="globe-outline" size={32} color="#3A3F4B" />
+            <Text style={styles.emptyPlatformsText}>No platforms available for your selection</Text>
+          </View>
         )}
       </ScrollView>
 
@@ -555,6 +553,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#2D6A4F44', marginBottom: 16, marginHorizontal: 20,
   },
   enhanceChipText: { color: '#2D6A4F', fontSize: 13, fontWeight: '600' },
+
+  /* ── Empty platforms state ── */
+  emptyPlatformsBox: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 24,
+    alignItems: 'center', justifyContent: 'center', gap: 10,
+    marginHorizontal: 20, marginBottom: 14,
+  },
+  emptyPlatformsText: { color: '#8B9099', fontSize: 14, textAlign: 'center' },
 
   /* ── Platform card ── */
   platformCard: {
