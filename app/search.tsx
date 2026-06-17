@@ -287,9 +287,13 @@ export default function SearchScreen() {
       const qs = new URLSearchParams({ name, address })
       const { data: zData } = await api.get(`/zembra/match?${qs.toString()}`)
       const nd: Record<string, { id: string | null; url: string; rating: number; reviewCount: number }> = zData?.networks ?? {}
+      const primaryIsGoogle = primarySlug.toLowerCase().startsWith('google')
       await Promise.allSettled(
         Object.entries(nd)
-          .filter(([slug]) => slug !== primarySlug && activeNetworkSlugsRef.current.includes(slug))
+          .filter(([slug]) => {
+            const isPrimaryGoogleDuplicate = primaryIsGoogle && slug.toLowerCase().startsWith('google')
+            return slug !== primarySlug && !isPrimaryGoogleDuplicate && activeNetworkSlugsRef.current.includes(slug)
+          })
           .map(([slug, e]) =>
             api.post('/listings', {
               external_listing_id: `zembra-${slug}-${businessId}`,
