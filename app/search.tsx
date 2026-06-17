@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Image,
+  Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -440,6 +441,14 @@ export default function SearchScreen() {
         })
       }
     } catch (err: any) {
+      // TEMPORARY — investigating a silent-failure case where a specific
+      // business's first save attempt throws here but existingId resolves
+      // to undefined, so this catch used to do nothing. Remove once diagnosed.
+      console.log(
+        'handleSelect save error — status:', err?.response?.status,
+        'data:', JSON.stringify(err?.response?.data),
+        'message:', err?.message,
+      )
       const existingId = err?.response?.data?.listing_id ?? err?.response?.data?.id
       if (existingId) {
         await saveToHistory(item, existingId)
@@ -453,6 +462,8 @@ export default function SearchScreen() {
             business_type: activeCategory ?? 'Business',
           },
         })
+      } else {
+        Alert.alert('Could not save this business', 'Please try again.')
       }
     } finally {
       isSelectingRef.current = false
