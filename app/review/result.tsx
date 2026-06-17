@@ -82,7 +82,7 @@ export default function ResultScreen() {
 
   const handleMarkAsPosted = async () => {
     try {
-      await api.patch(`/reviews/${params.review_id}`, { status: 'published' })
+      await api.patch(`/reviews/${params.review_id}`, { status: 'posted' })
     } catch {
       // Silent fail — not critical
     }
@@ -181,6 +181,30 @@ export default function ResultScreen() {
         )
 
         await handleGooglePost(reviewUrl, reviewText)
+      } else if (platformSlug === 'yelp') {
+        await Clipboard.setStringAsync(reviewText)
+        const url: string = data.url ?? ''
+        if (url) {
+          await Linking.openURL(url)
+          Alert.alert(
+            'Did you post the review?',
+            'Your review was copied to clipboard.',
+            [
+              { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
+              { text: 'Not yet', style: 'cancel' },
+            ]
+          )
+        } else {
+          const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
+          Alert.alert(
+            'Review copied!',
+            `Find the business on ${data.platform_name ?? platformName} and paste your review.`,
+            [
+              { text: 'Open Maps', onPress: () => Linking.openURL(`https://maps.google.com/?q=${q}`) },
+              { text: 'Later', style: 'cancel' },
+            ]
+          )
+        }
       } else {
         await Clipboard.setStringAsync(reviewText)
         const url: string = data.url ?? ''

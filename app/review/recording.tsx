@@ -6,6 +6,7 @@ import { Audio } from 'expo-av'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import api from '../../services/api'
 import { setPendingTranscript } from '../../utils/enhanceStore'
+import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
 const MAX_SECONDS = 60
 
@@ -68,13 +69,13 @@ export default function RecordingScreen() {
 
       let reviewId = params.review_id
       if (!reviewId) {
-        const { data } = await api.post('/reviews', {
+        const { data } = await withNetworkErrorRetry(() => api.post('/reviews', {
           listing_id: params.listing_id,
           review_text: ' ',
           rating: Number(params.rating) || 4,
           tone: 'neutral',
           language: 'en',
-        })
+        }))
         reviewId = data.review_id ?? data.id
       }
 
@@ -88,11 +89,11 @@ export default function RecordingScreen() {
       } as any)
       formData.append('language', 'en')
 
-      const response = await api.post(
+      const response = await withNetworkErrorRetry(() => api.post(
         `/reviews/${reviewId}/transcribe`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
-      )
+      ))
       const transcript = response.data.text ?? response.data.transcript ?? ''
       if (params.review_id) {
         // Already in an existing chat — go back and inject the transcript there
@@ -182,6 +183,11 @@ export default function RecordingScreen() {
             ? 'Tap to stop'
             : 'Tap to speak (01 min max)'}
         </Text>
+        {uploading && (
+          <Text style={styles.uploadingHint}>
+            Uploading and transcribing... this can take up to a minute
+          </Text>
+        )}
       </View>
     </View>
   )
@@ -300,5 +306,12 @@ const styles = StyleSheet.create({
     color: '#8B9099',
     fontSize: 13,
     textAlign: 'center',
+  },
+  uploadingHint: {
+    color: '#8B9099',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 30,
   },
 })
