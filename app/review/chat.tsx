@@ -21,6 +21,19 @@ type ChatHistoryItem = { message_id: string; review_id: string; role: string; co
 type Message = { id: string; role: 'ai' | 'user'; text: string }
 type FlatItem = Message | { id: string; kind: 'divider' }
 
+// Retries a call exactly once if it fails with a transient network error
+// (axios "Network Error" — no e.response at all). Real 4xx/5xx responses
+// are not retried and propagate immediately.
+async function withNetworkErrorRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e: any) {
+    if (e?.response !== undefined) throw e
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    return await fn()
+  }
+}
+
 function ProvocAvatar() {
   return (
     <View style={styles.aiAvatar}>
@@ -181,18 +194,18 @@ export default function ChatScreen() {
     setLoading(true)
     try {
       if (!rid) {
-        const { data } = await api.post('/reviews', {
+        const { data } = await withNetworkErrorRetry(() => api.post('/reviews', {
           listing_id: params.listing_id,
           review_text: params.transcript ?? ' ',
           rating: Number(params.rating) || 4,
           tone: 'neutral',
           language: 'en',
-        }, { timeout: 30000 })
+        }, { timeout: 30000 }))
         rid = data.review_id ?? data.id
         setReviewId(rid)
       }
 
-      const { data } = await api.post(
+      const { data } = await withNetworkErrorRetry(() => api.post(
         `/reviews/${rid}/chat/start`,
         {
           listing_context: {
@@ -203,7 +216,7 @@ export default function ChatScreen() {
           language: 'en',
         },
         { timeout: 120000 }
-      )
+      ))
       setSessionId(data.session_id)
 
       const initialMsgs: Message[] = [
