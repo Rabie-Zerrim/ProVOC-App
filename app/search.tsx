@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 import api from '../services/api'
 import { getBizPhoto } from '../utils/bizPhoto'
+import { withNetworkErrorRetry } from '../utils/withNetworkErrorRetry'
 
 const HISTORY_KEY = '@provoc_search_history'
 const MAX_HISTORY = 6
@@ -335,7 +336,7 @@ export default function SearchScreen() {
           const primaryEntry = candidates[0]
           if (primaryEntry) {
             const [slug, entry] = primaryEntry
-            const { data } = await api.post('/listings', {
+            const { data } = await withNetworkErrorRetry(() => api.post('/listings', {
               external_listing_id: `zembra-${slug}-osm-${item.data.id}`,
               zembra_external_id: entry.id ?? undefined,
               external_url: entry.url ?? '',
@@ -343,7 +344,7 @@ export default function SearchScreen() {
               address: item.data.formattedAddress,
               external_rating: entry.rating ?? 0,
               network: slug,
-            })
+            }))
             listingId = data.listing_id ?? data.id
             zembraRating = entry.rating ?? 0
             // Save remaining platforms under the same business
@@ -371,14 +372,14 @@ export default function SearchScreen() {
 
         // Fall back to saving raw OSM data if Zembra had no match
         if (!listingId) {
-          const { data } = await api.post('/listings', {
+          const { data } = await withNetworkErrorRetry(() => api.post('/listings', {
             external_listing_id: `osm-${item.data.id}`,
             external_url: '',
             name: item.data.name,
             address: item.data.formattedAddress,
             external_rating: 0,
             network: 'google',
-          })
+          }))
           listingId = data.listing_id ?? data.id
         }
 
@@ -405,14 +406,14 @@ export default function SearchScreen() {
         })
       } else {
         // Zembra result — save primary platform then look for others
-        const { data } = await api.post('/listings', {
+        const { data } = await withNetworkErrorRetry(() => api.post('/listings', {
           external_listing_id: item.data.id,
           external_url: item.data.url,
           name: item.data.name,
           address: item.data.formattedAddress,
           external_rating: item.data.globalRating,
           network: item.network,
-        })
+        }))
         listingId = data.listing_id ?? data.id
         const businessId = data.business?.business_id ?? data.business_id
         if (businessId) {
@@ -441,14 +442,6 @@ export default function SearchScreen() {
         })
       }
     } catch (err: any) {
-      // TEMPORARY — investigating a silent-failure case where a specific
-      // business's first save attempt throws here but existingId resolves
-      // to undefined, so this catch used to do nothing. Remove once diagnosed.
-      console.log(
-        'handleSelect save error — status:', err?.response?.status,
-        'data:', JSON.stringify(err?.response?.data),
-        'message:', err?.message,
-      )
       const existingId = err?.response?.data?.listing_id ?? err?.response?.data?.id
       if (existingId) {
         await saveToHistory(item, existingId)

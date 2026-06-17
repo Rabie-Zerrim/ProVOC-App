@@ -16,23 +16,11 @@ import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import api from '../../services/api'
 import { takePendingEnhance, takePendingTranscript } from '../../utils/enhanceStore'
+import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
 type ChatHistoryItem = { message_id: string; review_id: string; role: string; content: string; created_at: string }
 type Message = { id: string; role: 'ai' | 'user'; text: string }
 type FlatItem = Message | { id: string; kind: 'divider' }
-
-// Retries a call exactly once if it fails with a transient network error
-// (axios "Network Error" — no e.response at all). Real 4xx/5xx responses
-// are not retried and propagate immediately.
-async function withNetworkErrorRetry<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn()
-  } catch (e: any) {
-    if (e?.response !== undefined) throw e
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    return await fn()
-  }
-}
 
 function ProvocAvatar() {
   return (
