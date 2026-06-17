@@ -95,7 +95,10 @@ export default function ResultScreen() {
   const handleGooglePost = async (url: string, reviewText: string) => {
     try {
       await Clipboard.setStringAsync(reviewText)
-      if (await InAppBrowser.isAvailable()) {
+      console.log('GOOGLE POST: checking isAvailable')
+      const isAvailable = await InAppBrowser.isAvailable()
+      console.log('GOOGLE POST: isAvailable result:', isAvailable)
+      if (isAvailable) {
         await InAppBrowser.open(url, {
           showTitle: true,
           toolbarColor: '#1a1a2e',
@@ -122,8 +125,10 @@ export default function ResultScreen() {
           ]
         )
       } else {
+        console.log('GOOGLE POST: entering else branch')
         await Clipboard.setStringAsync(reviewText)
         await Linking.openURL(url)
+        console.log('GOOGLE POST: about to show alert')
         Alert.alert(
           'Did you post the review?',
           'Your review was copied to clipboard.',
