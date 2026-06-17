@@ -316,12 +316,27 @@ export default function SearchScreen() {
     return []
   }
 
+  // Soft check — never blocks the save/navigate flow. If the request (and
+  // its single retry) both fail, treat it as "no recent review found."
+  const checkHasRecentReview = async (businessId: string | undefined): Promise<boolean> => {
+    if (!businessId) return false
+    try {
+      const { data } = await withNetworkErrorRetry(() =>
+        api.get(`/reviews/recent-check?business_id=${businessId}`),
+      )
+      return !!data?.hasRecentReview
+    } catch {
+      return false
+    }
+  }
+
   const handleSelect = async (item: ResultItem) => {
     if (isSelectingRef.current) return
     isSelectingRef.current = true
     setSaving(true)
     try {
       let listingId: string | undefined
+      let businessId: string | undefined
 
       if (item.network === 'osm') {
         // Try Zembra match for all platforms using the OSM business name + address
@@ -348,7 +363,7 @@ export default function SearchScreen() {
             listingId = data.listing_id ?? data.id
             zembraRating = entry.rating ?? 0
             // Save remaining platforms under the same business
-            const businessId = data.business?.business_id ?? data.business_id
+            businessId = data.business?.business_id ?? data.business_id
             if (businessId) {
               await Promise.allSettled(
                 candidates
@@ -381,6 +396,7 @@ export default function SearchScreen() {
             network: 'google',
           }))
           listingId = data.listing_id ?? data.id
+          businessId = businessId ?? (data.business?.business_id ?? data.business_id)
         }
 
         // Fetch real network_ids from the saved listing (includes all platforms saved above)
@@ -392,18 +408,33 @@ export default function SearchScreen() {
         } catch {}
 
         const enriched: ResultItem = { ...item, data: { ...item.data, globalRating: zembraRating, formattedAddress: zembraAddress } }
-        await saveToHistory(enriched, listingId!)
-        router.push({
-          pathname: '/review/networks',
-          params: {
-            listing_id: listingId!,
-            business_name: item.data.name,
-            address: zembraAddress,
-            rating: zembraRating > 0 ? zembraRating.toString() : '0',
-            business_type: activeCategory ?? 'Business',
-            ...(networkIds.length > 0 ? { network_ids: JSON.stringify(networkIds) } : {}),
-          },
-        })
+        const proceedToNetworks = async () => {
+          await saveToHistory(enriched, listingId!)
+          router.push({
+            pathname: '/review/networks',
+            params: {
+              listing_id: listingId!,
+              business_name: item.data.name,
+              address: zembraAddress,
+              rating: zembraRating > 0 ? zembraRating.toString() : '0',
+              business_type: activeCategory ?? 'Business',
+              ...(networkIds.length > 0 ? { network_ids: JSON.stringify(networkIds) } : {}),
+            },
+          })
+        }
+
+        if (await checkHasRecentReview(businessId)) {
+          Alert.alert(
+            'Review again?',
+            'You already reviewed this business recently. Would you like to review it again?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Review Again', onPress: () => { proceedToNetworks() } },
+            ],
+          )
+        } else {
+          await proceedToNetworks()
+        }
       } else {
         // Zembra result — save primary platform then look for others
         const { data } = await withNetworkErrorRetry(() => api.post('/listings', {
@@ -415,7 +446,7 @@ export default function SearchScreen() {
           network: item.network,
         }))
         listingId = data.listing_id ?? data.id
-        const businessId = data.business?.business_id ?? data.business_id
+        businessId = data.business?.business_id ?? data.business_id
         if (businessId) {
           await saveAllPlatforms(item.data.name, item.data.formattedAddress, item.network, businessId)
         }
@@ -428,18 +459,33 @@ export default function SearchScreen() {
           networkIds = nets.map((n: any) => n.network_id ?? n.id).filter(Boolean)
         } catch {}
 
-        await saveToHistory(item, listingId!)
-        router.push({
-          pathname: '/review/networks',
-          params: {
-            listing_id: listingId!,
-            business_name: item.data.name,
-            address: item.data.formattedAddress ?? '',
-            rating: item.data.globalRating?.toString() ?? '',
-            business_type: activeCategory ?? 'Restaurant',
-            ...(networkIds.length > 0 ? { network_ids: JSON.stringify(networkIds) } : {}),
-          },
-        })
+        const proceedToNetworks = async () => {
+          await saveToHistory(item, listingId!)
+          router.push({
+            pathname: '/review/networks',
+            params: {
+              listing_id: listingId!,
+              business_name: item.data.name,
+              address: item.data.formattedAddress ?? '',
+              rating: item.data.globalRating?.toString() ?? '',
+              business_type: activeCategory ?? 'Restaurant',
+              ...(networkIds.length > 0 ? { network_ids: JSON.stringify(networkIds) } : {}),
+            },
+          })
+        }
+
+        if (await checkHasRecentReview(businessId)) {
+          Alert.alert(
+            'Review again?',
+            'You already reviewed this business recently. Would you like to review it again?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Review Again', onPress: () => { proceedToNetworks() } },
+            ],
+          )
+        } else {
+          await proceedToNetworks()
+        }
       }
     } catch (err: any) {
       const existingId = err?.response?.data?.listing_id ?? err?.response?.data?.id
