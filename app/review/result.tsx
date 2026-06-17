@@ -14,6 +14,7 @@ import { resolveGooglePlaceId } from '../../services/googlePlaces'
 import { usePlacePhoto } from '../../hooks/usePlacePhoto'
 import { getBizPhoto } from '../../utils/bizPhoto'
 import { getPlatformConfig } from '../../utils/platformConfig'
+import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 import TodayCard from '../../components/TodayCard'
 
 type Network = { network_id: string; name: string; slug: string; url?: string }
@@ -82,9 +83,12 @@ export default function ResultScreen() {
 
   const handleMarkAsPosted = async () => {
     try {
-      await api.patch(`/reviews/${params.review_id}`, { status: 'posted' })
+      await withNetworkErrorRetry(() => api.patch(`/reviews/${params.review_id}`, { status: 'posted' }))
     } catch {
-      // Silent fail — not critical
+      Alert.alert(
+        'Could not update status',
+        'Your review was still posted, but we couldn\'t record it here.',
+      )
     }
   }
 
