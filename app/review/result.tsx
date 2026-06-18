@@ -98,11 +98,14 @@ export default function ResultScreen() {
       // InAppBrowser.isAvailable() can hang indefinitely in Expo Go (the
       // promise never settles), so race it against a short timeout — a
       // genuinely available Chrome Custom Tab resolves near-instantly anyway.
+      console.log('GOOGLE POST: about to start Promise.race for isAvailable')
       const isAvailable = await Promise.race([
         InAppBrowser.isAvailable(),
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
       ])
+      console.log('GOOGLE POST: Promise.race resolved with isAvailable =', isAvailable)
       if (isAvailable) {
+        console.log('GOOGLE POST: entering if branch (InAppBrowser)')
         await InAppBrowser.open(url, {
           showTitle: true,
           toolbarColor: '#1a1a2e',
@@ -120,6 +123,7 @@ export default function ResultScreen() {
           animated: true,
           modalEnabled: true,
         })
+        console.log('GOOGLE POST: about to show alert (if branch)')
         Alert.alert(
           'Did you post the review?',
           'Your review was copied to clipboard.',
@@ -129,8 +133,10 @@ export default function ResultScreen() {
           ]
         )
       } else {
+        console.log('GOOGLE POST: entering else branch (Linking.openURL)')
         await Clipboard.setStringAsync(reviewText)
         await Linking.openURL(url)
+        console.log('GOOGLE POST: about to show alert (else branch)')
         Alert.alert(
           'Did you post the review?',
           'Your review was copied to clipboard.',
@@ -140,7 +146,8 @@ export default function ResultScreen() {
           ]
         )
       }
-    } catch {
+    } catch (e: any) {
+      console.log('GOOGLE POST ERROR:', e?.message, e?.stack)
       await Clipboard.setStringAsync(reviewText)
       await Linking.openURL(url)
     }
