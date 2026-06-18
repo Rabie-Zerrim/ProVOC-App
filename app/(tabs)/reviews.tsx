@@ -125,6 +125,7 @@ export default function ReviewsScreen() {
   const [pinnedIds, setPinnedIds]   = useState<Set<string>>(new Set())
   const [dashboard, setDashboard]   = useState<DashboardSummary | null>(null)
   const [avgRating, setAvgRating]   = useState<number | null>(null)
+  const [categoryBreakdown, setCategoryBreakdown] = useState<Record<string, { average: number; count: number }>>({})
   const [dashLoading, setDashLoading] = useState(true)
 
   useEffect(() => {
@@ -134,10 +135,15 @@ export default function ReviewsScreen() {
   }, [])
 
   useEffect(() => {
-    Promise.all([api.get('/reviews/stats'), api.get('/reviews/dashboard')])
-      .then(([statsRes, dashRes]) => {
+    Promise.all([
+      api.get('/reviews/stats'),
+      api.get('/reviews/dashboard'),
+      api.get('/reviews/category-breakdown'),
+    ])
+      .then(([statsRes, dashRes, categoryRes]) => {
         setAvgRating(statsRes.data?.average_rating ?? null)
         setDashboard(dashRes.data)
+        setCategoryBreakdown(categoryRes.data ?? {})
       })
       .catch(() => {})
       .finally(() => setDashLoading(false))
@@ -249,6 +255,41 @@ export default function ReviewsScreen() {
                 <Text style={styles.dashboardStatLabel}>Avg rating</Text>
               </View>
             </View>
+          </>
+        )}
+      </View>
+
+      {/* Your Ratings — separate card so it can grow independently of the
+          donut chart's fixed layout, and so each concern gets its own clear
+          heading (matches this app's existing pattern of separate cards per
+          section, e.g. profile.tsx's user/password/stats/platforms cards). */}
+      <View style={styles.categoryRatingsCard}>
+        {dashLoading ? (
+          <View style={styles.dashboardLoading}>
+            <ActivityIndicator color="#2D6A4F" />
+          </View>
+        ) : Object.keys(categoryBreakdown).length === 0 ? (
+          <>
+            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+            <Text style={styles.categoryRatingsEmptyText}>
+              Rate categories on your reviews to see your average ratings here.
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+            {Object.entries(categoryBreakdown).map(([category, { average, count }]) => (
+              <View key={category} style={styles.categoryRow}>
+                <Text style={styles.categoryName}>{category}</Text>
+                <View style={styles.categoryValueRow}>
+                  <Ionicons name="star" size={13} color="#FFB800" />
+                  <Text style={styles.categoryValueText}>{average.toFixed(1)}</Text>
+                  <Text style={styles.categoryCountText}>
+                    ({count} review{count === 1 ? '' : 's'})
+                  </Text>
+                </View>
+              </View>
+            ))}
           </>
         )}
       </View>
@@ -392,6 +433,21 @@ const styles = StyleSheet.create({
   dashboardStatLabel: { color: '#8B9099', fontSize: 11 },
   donutEmpty: { borderWidth: 16, borderColor: '#2A3045', justifyContent: 'center', alignItems: 'center' },
   donutEmptyText: { color: '#8B9099', fontSize: 11 },
+
+  categoryRatingsCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16,
+    marginHorizontal: 20, marginBottom: 16,
+  },
+  categoryRatingsTitle: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  categoryRatingsEmptyText: { color: '#8B9099', fontSize: 13, lineHeight: 19 },
+  categoryRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#2A3045',
+  },
+  categoryName: { color: '#C0C6D4', fontSize: 13, flex: 1 },
+  categoryValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  categoryValueText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  categoryCountText: { color: '#8B9099', fontSize: 11 },
 
   tabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 10, gap: 6 },
   tab: {

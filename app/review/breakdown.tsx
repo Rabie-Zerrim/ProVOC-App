@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TodayCard from '../../components/TodayCard'
 import { PLATFORM_CONFIG, getCategoriesForBusiness } from '../../utils/platformConfig'
 import { getBizPhoto } from '../../utils/bizPhoto'
+import api from '../../services/api'
+import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
 const PLATFORMS_ORDER = ['facebook', 'yelp', 'google', 'tripadvisor', 'trustpilot']
 
@@ -46,6 +48,45 @@ export default function BreakdownScreen() {
 
   const setRating = (platform: string, sub: string, val: number) =>
     setRatings((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? {}), [sub]: val } }))
+
+  // ratings is nested by platform first (every platform card reuses the same
+  // category list), but the backend's category_ratings is a flat map — average
+  // across platforms per category rather than arbitrarily picking one.
+  const buildCategoryRatings = (): Record<string, number> => {
+    const sums: Record<string, { total: number; count: number }> = {}
+    for (const platformRatings of Object.values(ratings)) {
+      for (const [category, value] of Object.entries(platformRatings)) {
+        if (!value) continue
+        const entry = sums[category] ?? { total: 0, count: 0 }
+        entry.total += value
+        entry.count += 1
+        sums[category] = entry
+      }
+    }
+    const flat: Record<string, number> = {}
+    for (const [category, { total, count }] of Object.entries(sums)) {
+      flat[category] = Math.round((total / count) * 10) / 10
+    }
+    return flat
+  }
+
+  const handleNext = async () => {
+    const categoryRatings = buildCategoryRatings()
+    if (params.review_id && Object.keys(categoryRatings).length > 0) {
+      try {
+        await withNetworkErrorRetry(() =>
+          api.patch(`/reviews/${params.review_id}`, { category_ratings: categoryRatings }),
+        )
+      } catch (e) {
+        // Supplementary data — never block navigation on this failing.
+        console.log('Could not save category ratings (non-critical):', e)
+      }
+    }
+    router.push({
+      pathname: '/review/result',
+      params: { ...params, breakdown: JSON.stringify(ratings) },
+    })
+  }
 
   let selectedSlugs: string[]
   try {
@@ -112,13 +153,7 @@ export default function BreakdownScreen() {
         <TouchableOpacity style={styles.btnSecondary} onPress={() => router.back()}>
           <Text style={styles.btnSecondaryText}>Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.btnPrimary}
-          onPress={() => router.push({
-            pathname: '/review/result',
-            params: { ...params, breakdown: JSON.stringify(ratings) },
-          })}
-        >
+        <TouchableOpacity style={styles.btnPrimary} onPress={handleNext}>
           <Text style={styles.btnPrimaryText}>Next</Text>
           <Ionicons name="arrow-forward" size={16} color="#fff" />
         </TouchableOpacity>
