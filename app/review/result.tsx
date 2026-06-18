@@ -93,6 +93,7 @@ export default function ResultScreen() {
   }
 
   const handleGooglePost = async (url: string, reviewText: string) => {
+    console.log('GOOGLE POST: function entered')
     try {
       await Clipboard.setStringAsync(reviewText)
       // InAppBrowser can resolve to null entirely (e.g. in Expo Go, where the
@@ -135,7 +136,8 @@ export default function ResultScreen() {
           ]
         )
       }
-    } catch {
+    } catch (e: any) {
+      console.log('GOOGLE POST CATCH:', e?.message, e)
       await Clipboard.setStringAsync(reviewText)
       await Linking.openURL(url)
     }
