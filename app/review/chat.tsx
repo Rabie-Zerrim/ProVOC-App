@@ -386,6 +386,7 @@ export default function ChatScreen() {
         { session_id: sid },
         { timeout: 60000 }
       )
+      console.log('RETRY response:', JSON.stringify(approveData))
 
       const newText = approveData.review_text ?? approveData.improved_text ?? approveData.text ?? ''
       setSessionId(null)
@@ -396,9 +397,11 @@ export default function ChatScreen() {
         await api.patch(`/reviews/${reviewId}`, { review_text: newText, rating: approveData.rating })
       } else {
         setGeneratedReview(prev)
+        Alert.alert('No changes generated', 'The AI didn\'t return a usable result. Please try again.')
       }
     } catch {
       setGeneratedReview(prev)
+      Alert.alert('Could not rephrase', 'Please try again.')
     } finally {
       setRephrasing(false)
     }
@@ -433,6 +436,7 @@ export default function ChatScreen() {
         { session_id: freshSessionId },
         { timeout: 60000 }
       )
+      console.log('REGENERATE response:', JSON.stringify(approveData))
 
       const newText = approveData.review_text ??
         approveData.improved_text ??
@@ -449,6 +453,7 @@ export default function ChatScreen() {
         })
       } else {
         setGeneratedReview(prev)
+        Alert.alert('No changes generated', 'The AI didn\'t return a usable result. Please try again.')
       }
     } catch {
       setGeneratedReview(prev)
