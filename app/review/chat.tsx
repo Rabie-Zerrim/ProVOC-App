@@ -58,6 +58,10 @@ export default function ChatScreen() {
   const [voiceMode, setVoiceMode] = useState(false)
   const flatRef = useRef<FlatList>(null)
   const messagesRef = useRef<Message[]>([])
+  // Tracks messages.length at the time the review was last generated/
+  // rephrased/regenerated, so handleRetry can detect new user messages
+  // added since then and fold them into the rephrase instead of ignoring them.
+  const lastGeneratedMessageCountRef = useRef(0)
 
   // Computed once from stable params — used in initChat and handleRegenerate
   const _enhanceCtx = (() => {
@@ -341,8 +345,9 @@ export default function ChatScreen() {
       setEditReviewText(reviewText)
       setApprovedRating(data.rating ?? Number(params.rating))
       setSessionId(null)
-      if (reviewText) setVoiceMode(true)
       if (reviewText) {
+        setVoiceMode(true)
+        lastGeneratedMessageCountRef.current = messages.length
         await api.patch(`/reviews/${reviewId}`, { review_text: reviewText, rating: data.rating })
       }
     } catch {
@@ -372,12 +377,22 @@ export default function ChatScreen() {
         setSessionId(sid)
       }
 
+      // Fold in anything the user typed after the review was last generated/
+      // rephrased/regenerated — otherwise a plain rephrase silently ignores
+      // new context the user just provided via the chat input.
+      const newUserContext = messages
+        .slice(lastGeneratedMessageCountRef.current)
+        .filter((m) => m.role === 'user')
+        .map((m) => m.text)
+        .join(' ')
+
+      const message = newUserContext
+        ? `Please rewrite this review, taking into account this new context: "${newUserContext}". Keep the rewrite based on this current review: "${generatedReview}", but incorporate the new details/changes the user just mentioned.`
+        : `Please rewrite this review with different wording and structure, keeping the EXACT same meaning, sentiment, rating, and all negative or positive points. Here is the current review to rephrase: "${generatedReview}"`
+
       await api.post(
         `/reviews/${reviewId}/chat/message`,
-        {
-          session_id: sid,
-          message: `Please rewrite this review with different wording and structure, keeping the EXACT same meaning, sentiment, rating, and all negative or positive points. Here is the current review to rephrase: "${generatedReview}"`,
-        },
+        { session_id: sid, message },
         { timeout: 60000 }
       )
 
@@ -394,6 +409,7 @@ export default function ChatScreen() {
       if (newText) {
         setGeneratedReview(newText)
         setEditReviewText(newText)
+        lastGeneratedMessageCountRef.current = messages.length
         await api.patch(`/reviews/${reviewId}`, { review_text: newText, rating: approveData.rating })
       } else {
         setGeneratedReview(prev)
@@ -447,6 +463,7 @@ export default function ChatScreen() {
       if (newText) {
         setGeneratedReview(newText)
         setEditReviewText(newText)
+        lastGeneratedMessageCountRef.current = messages.length
         await api.patch(`/reviews/${reviewId}`, {
           review_text: newText,
           rating: approveData.rating,
@@ -678,6 +695,12 @@ export default function ChatScreen() {
                 autoFocus={!!generatedReview && !voiceMode}
               />
             )}
+            <TouchableOpacity
+              style={styles.sendBtn}
+              onPress={() => router.push({ pathname: '/review/recording', params: { ...params, review_id: reviewId ?? '' } })}
+            >
+              <Ionicons name="mic-outline" size={18} color="#8B9099" />
+            </TouchableOpacity>
             {generatedReview && !voiceMode && (
               <TouchableOpacity style={styles.sendBtn} onPress={() => setVoiceMode(true)}>
                 <Ionicons name="mic-outline" size={18} color="#8B9099" />
