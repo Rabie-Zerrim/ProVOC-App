@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   ActivityIndicator, Alert, TextInput,
@@ -25,6 +25,7 @@ type Review = {
   listing_id?: string
   listing?: { listing_id?: string; name: string; external_rating?: number; external_url?: string; external_listing_id?: string; networks?: Network[] }
   business?: { name: string; business_type?: string; address?: string }
+  selected_networks?: string[] | null
 }
 
 const SENTIMENT_LABELS: Record<number, { label: string; color: string }> = {
@@ -77,6 +78,45 @@ export default function ResultScreen() {
 
   // Must be called before any early return — Rules of Hooks
   const placePhotoUrl = usePlacePhoto(review?.listing?.external_listing_id)
+
+  const allNetworks = review?.listing?.networks ?? []
+  const persistedSlugs = review?.selected_networks && review.selected_networks.length > 0
+    ? review.selected_networks
+    : null
+  let navParamSlugs: string[] | null = null
+  try {
+    navParamSlugs = params.selected_networks ? JSON.parse(params.selected_networks) : null
+  } catch {
+    navParamSlugs = null
+  }
+  // Prefer the persisted, real source of truth over the nav param (which is
+  // only present on the very first load of the live search→select flow,
+  // before the one-time PATCH below has run). Fall back to all networks only
+  // when neither was ever set — e.g. a review created before this feature
+  // existed, reopened from the Reviews tab with no nav param either.
+  const selectedSlugs = persistedSlugs ?? (navParamSlugs && navParamSlugs.length > 0 ? navParamSlugs : null)
+  const networks = selectedSlugs && selectedSlugs.length > 0
+    ? allNetworks.filter((n) => selectedSlugs!.includes(n.slug))
+    : allNetworks
+
+  // One-time persistence of the networks actually selected during the live
+  // search→select→result flow, so reopening this review later (e.g. from the
+  // Reviews tab) shows the same platforms instead of falling back to all of
+  // the listing's networks. Only fires when there's a genuine nav param (the
+  // live flow) and nothing has been persisted for this review yet.
+  const persistedNetworksRef = useRef(false)
+  useEffect(() => {
+    if (persistedNetworksRef.current) return
+    if (loading || !params.review_id) return
+    if (!navParamSlugs || navParamSlugs.length === 0) return
+    if (persistedSlugs) return
+    if (networks.length === 0) return
+    persistedNetworksRef.current = true
+    const slugsToSave = networks.map((n) => n.slug)
+    withNetworkErrorRetry(() =>
+      api.patch(`/reviews/${params.review_id}`, { selected_networks: slugsToSave }),
+    ).catch(() => {})
+  }, [loading, networks, navParamSlugs, persistedSlugs, params.review_id])
 
   const setSubRating = (platform: string, sub: string, val: number) =>
     setBreakdown((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? {}), [sub]: val } }))
@@ -268,16 +308,6 @@ export default function ResultScreen() {
     </View>
   )
 
-  const allNetworks = review?.listing?.networks ?? []
-  let selectedSlugs: string[] | null = null
-  try {
-    selectedSlugs = params.selected_networks ? JSON.parse(params.selected_networks) : null
-  } catch {
-    selectedSlugs = null
-  }
-  const networks = selectedSlugs && selectedSlugs.length > 0
-    ? allNetworks.filter((n) => selectedSlugs!.includes(n.slug))
-    : allNetworks
   const reviewRating = review?.rating ?? Number(params.rating) ?? 4
   const sentiment = SENTIMENT_LABELS[Math.round(editableRating)] ?? SENTIMENT_LABELS[4]
   const businessName = review?.business?.name ?? review?.listing?.name ?? params.business_name ?? 'Business'
