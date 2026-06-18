@@ -93,12 +93,20 @@ export default function ResultScreen() {
   }
 
   const handleGooglePost = async (url: string, reviewText: string) => {
-    console.log('GOOGLE POST: function entered')
     try {
       await Clipboard.setStringAsync(reviewText)
-      // InAppBrowser can resolve to null entirely (e.g. in Expo Go, where the
-      // native module isn't linked) — only call isAvailable() when it exists.
-      if (InAppBrowser && await InAppBrowser.isAvailable()) {
+      // InAppBrowser can throw when checking availability (e.g. in Expo Go,
+      // where the native module isn't properly linked) even with a truthy
+      // check on InAppBrowser itself — so guard the whole check in its own
+      // try/catch and treat any failure as "not available" rather than
+      // letting it escape to the outer catch and skip the confirmation flow.
+      let useInAppBrowser = false
+      try {
+        useInAppBrowser = !!(InAppBrowser && await InAppBrowser.isAvailable())
+      } catch {
+        useInAppBrowser = false
+      }
+      if (useInAppBrowser) {
         await InAppBrowser.open(url, {
           showTitle: true,
           toolbarColor: '#1a1a2e',
