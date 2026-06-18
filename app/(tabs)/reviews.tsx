@@ -2,7 +2,6 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import Svg, { Circle, G } from 'react-native-svg'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import api from '../../services/api'
 
@@ -18,11 +17,6 @@ type Review = {
 
 type FilterTab = 'all' | 'published' | 'pending' | 'draft'
 
-type DashboardSummary = {
-  total_reviews: number
-  by_status: { draft: number; pending: number; published: number; posted: number }
-}
-
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   draft:    { bg: '#2A3045', text: '#8B9099' },
   pending:  { bg: '#3A2E00', text: '#FFB800' },
@@ -35,68 +29,6 @@ const STATUS_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   pending:  'time-outline',
   posted:   'checkmark-circle',
   failed:   'close-circle',
-}
-
-// Dashboard's by_status keys are a separate lifecycle breakdown from the
-// review-list STATUS_COLORS above (it tracks 'published' in addition to
-// 'posted' — confirmed against pv-bff's REVIEW_STATUSES) so it gets its own
-// color/label map rather than reusing STATUS_COLORS, which has no 'published' key.
-const DASHBOARD_STATUS_META: { key: keyof DashboardSummary['by_status']; label: string; color: string }[] = [
-  { key: 'draft',     label: 'Draft',     color: '#8B9099' },
-  { key: 'pending',   label: 'Pending',   color: '#FFB800' },
-  { key: 'published', label: 'Published', color: '#40916C' },
-  { key: 'posted',    label: 'Posted',    color: '#22C55E' },
-]
-
-// Simple stroke-dasharray ring chart — avoids hand-built arc-path geometry,
-// which is fiddlier to get pixel-correct than this standard SVG technique.
-function DonutChart({
-  data, size = 110, strokeWidth = 16,
-}: {
-  data: { label: string; value: number; color: string }[]
-  size?: number
-  strokeWidth?: number
-}) {
-  const total = data.reduce((sum, d) => sum + d.value, 0)
-  const radius = (size - strokeWidth) / 2
-  const cx = size / 2
-  const cy = size / 2
-  const circumference = 2 * Math.PI * radius
-
-  if (total === 0) {
-    return (
-      <View style={[styles.donutEmpty, { width: size, height: size, borderRadius: size / 2 }]}>
-        <Text style={styles.donutEmptyText}>No data</Text>
-      </View>
-    )
-  }
-
-  let offset = 0
-  return (
-    <Svg width={size} height={size}>
-      <G rotation={-90} origin={`${cx}, ${cy}`}>
-        {data.map((d) => {
-          if (d.value === 0) return null
-          const segmentLength = (d.value / total) * circumference
-          const dashOffset = -offset
-          offset += segmentLength
-          return (
-            <Circle
-              key={d.label}
-              cx={cx}
-              cy={cy}
-              r={radius}
-              stroke={d.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${segmentLength} ${circumference - segmentLength}`}
-              strokeDashoffset={dashOffset}
-              fill="none"
-            />
-          )
-        })}
-      </G>
-    </Svg>
-  )
 }
 
 const TABS: { key: FilterTab; label: string }[] = [
@@ -123,30 +55,11 @@ export default function ReviewsScreen() {
   const [activeTab, setActiveTab]   = useState<FilterTab>('all')
   const [activeStar, setActiveStar] = useState<number | null>(null)
   const [pinnedIds, setPinnedIds]   = useState<Set<string>>(new Set())
-  const [dashboard, setDashboard]   = useState<DashboardSummary | null>(null)
-  const [avgRating, setAvgRating]   = useState<number | null>(null)
-  const [categoryBreakdown, setCategoryBreakdown] = useState<Record<string, { average: number; count: number }>>({})
-  const [dashLoading, setDashLoading] = useState(true)
 
   useEffect(() => {
     AsyncStorage.getItem(PINS_KEY).then((raw) => {
       if (raw) setPinnedIds(new Set(JSON.parse(raw)))
     })
-  }, [])
-
-  useEffect(() => {
-    Promise.all([
-      api.get('/reviews/stats'),
-      api.get('/reviews/dashboard'),
-      api.get('/reviews/category-breakdown'),
-    ])
-      .then(([statsRes, dashRes, categoryRes]) => {
-        setAvgRating(statsRes.data?.average_rating ?? null)
-        setDashboard(dashRes.data)
-        setCategoryBreakdown(categoryRes.data ?? {})
-      })
-      .catch(() => {})
-      .finally(() => setDashLoading(false))
   }, [])
 
   const fetchReviews = useCallback(async (tab: FilterTab, isRefresh = false) => {
@@ -216,83 +129,6 @@ export default function ReviewsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>My Reviews</Text>
-
-      {/* Stats dashboard */}
-      <View style={styles.dashboardCard}>
-        {dashLoading ? (
-          <View style={styles.dashboardLoading}>
-            <ActivityIndicator color="#2D6A4F" />
-          </View>
-        ) : (
-          <>
-            <View style={styles.dashboardChartRow}>
-              <DonutChart
-                data={DASHBOARD_STATUS_META.map((m) => ({
-                  label: m.label,
-                  value: dashboard?.by_status?.[m.key] ?? 0,
-                  color: m.color,
-                }))}
-              />
-              <View style={styles.dashboardLegend}>
-                {DASHBOARD_STATUS_META.map((m) => (
-                  <View key={m.key} style={styles.legendRow}>
-                    <View style={[styles.legendSwatch, { backgroundColor: m.color }]} />
-                    <Text style={styles.legendLabel}>{m.label}</Text>
-                    <Text style={styles.legendCount}>{dashboard?.by_status?.[m.key] ?? 0}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-            <View style={styles.dashboardStatsRow}>
-              <View style={styles.dashboardStat}>
-                <Text style={styles.dashboardStatNum}>{dashboard?.total_reviews ?? 0}</Text>
-                <Text style={styles.dashboardStatLabel}>Total reviews</Text>
-              </View>
-              <View style={styles.dashboardStat}>
-                <Text style={[styles.dashboardStatNum, { color: '#FFB800' }]}>
-                  {avgRating != null ? avgRating.toFixed(1) : '—'}
-                </Text>
-                <Text style={styles.dashboardStatLabel}>Avg rating</Text>
-              </View>
-            </View>
-          </>
-        )}
-      </View>
-
-      {/* Your Ratings — separate card so it can grow independently of the
-          donut chart's fixed layout, and so each concern gets its own clear
-          heading (matches this app's existing pattern of separate cards per
-          section, e.g. profile.tsx's user/password/stats/platforms cards). */}
-      <View style={styles.categoryRatingsCard}>
-        {dashLoading ? (
-          <View style={styles.dashboardLoading}>
-            <ActivityIndicator color="#2D6A4F" />
-          </View>
-        ) : Object.keys(categoryBreakdown).length === 0 ? (
-          <>
-            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
-            <Text style={styles.categoryRatingsEmptyText}>
-              Rate categories on your reviews to see your average ratings here.
-            </Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
-            {Object.entries(categoryBreakdown).map(([category, { average, count }]) => (
-              <View key={category} style={styles.categoryRow}>
-                <Text style={styles.categoryName}>{category}</Text>
-                <View style={styles.categoryValueRow}>
-                  <Ionicons name="star" size={13} color="#FFB800" />
-                  <Text style={styles.categoryValueText}>{average.toFixed(1)}</Text>
-                  <Text style={styles.categoryCountText}>
-                    ({count} review{count === 1 ? '' : 's'})
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
-      </View>
 
       {/* Status tabs */}
       <View style={styles.tabs}>
@@ -412,42 +248,6 @@ const styles = StyleSheet.create({
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   heading:   { color: '#fff', fontSize: 22, fontWeight: '700', paddingHorizontal: 20, marginBottom: 14 },
   emptyText: { color: '#8B9099', fontSize: 15 },
-
-  dashboardCard: {
-    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16,
-    marginHorizontal: 20, marginBottom: 16,
-  },
-  dashboardLoading: { paddingVertical: 28, alignItems: 'center' },
-  dashboardChartRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginBottom: 16 },
-  dashboardLegend: { flex: 1, gap: 8 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendSwatch: { width: 10, height: 10, borderRadius: 5 },
-  legendLabel: { flex: 1, color: '#C0C6D4', fontSize: 12 },
-  legendCount: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  dashboardStatsRow: {
-    flexDirection: 'row', gap: 8, paddingTop: 14,
-    borderTopWidth: 1, borderTopColor: '#2A3045',
-  },
-  dashboardStat: { flex: 1, alignItems: 'center' },
-  dashboardStatNum: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 2 },
-  dashboardStatLabel: { color: '#8B9099', fontSize: 11 },
-  donutEmpty: { borderWidth: 16, borderColor: '#2A3045', justifyContent: 'center', alignItems: 'center' },
-  donutEmptyText: { color: '#8B9099', fontSize: 11 },
-
-  categoryRatingsCard: {
-    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16,
-    marginHorizontal: 20, marginBottom: 16,
-  },
-  categoryRatingsTitle: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  categoryRatingsEmptyText: { color: '#8B9099', fontSize: 13, lineHeight: 19 },
-  categoryRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#2A3045',
-  },
-  categoryName: { color: '#C0C6D4', fontSize: 13, flex: 1 },
-  categoryValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  categoryValueText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  categoryCountText: { color: '#8B9099', fontSize: 11 },
 
   tabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 10, gap: 6 },
   tab: {

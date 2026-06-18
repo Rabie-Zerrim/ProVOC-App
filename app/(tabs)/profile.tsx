@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
+import Svg, { Circle, G } from 'react-native-svg'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
@@ -17,7 +18,7 @@ type Stats = { average_rating: number | null; this_month: number; last_month: nu
 
 type DashboardSummary = {
   total_reviews: number
-  by_status: { draft: number; pending: number; published: number; simulated: number }
+  by_status: { draft: number; pending: number; published: number; posted: number }
 }
 
 const PLATFORMS = [
@@ -33,6 +34,68 @@ function PlatformIcon({ icon, color, size = 15 }: { icon: string | null; color: 
   return <Ionicons name="star" size={size} color="#fff" />
 }
 
+// Dashboard's by_status keys are a separate lifecycle breakdown from review
+// status values used elsewhere (it tracks 'published' in addition to
+// 'posted' — confirmed against pv-bff's REVIEW_STATUSES), so it gets its own
+// color/label map.
+const DASHBOARD_STATUS_META: { key: keyof DashboardSummary['by_status']; label: string; color: string }[] = [
+  { key: 'draft',     label: 'Draft',     color: '#8B9099' },
+  { key: 'pending',   label: 'Pending',   color: '#FFB800' },
+  { key: 'published', label: 'Published', color: '#40916C' },
+  { key: 'posted',    label: 'Posted',    color: '#22C55E' },
+]
+
+// Simple stroke-dasharray ring chart — avoids hand-built arc-path geometry,
+// which is fiddlier to get pixel-correct than this standard SVG technique.
+function DonutChart({
+  data, size = 110, strokeWidth = 16,
+}: {
+  data: { label: string; value: number; color: string }[]
+  size?: number
+  strokeWidth?: number
+}) {
+  const total = data.reduce((sum, d) => sum + d.value, 0)
+  const radius = (size - strokeWidth) / 2
+  const cx = size / 2
+  const cy = size / 2
+  const circumference = 2 * Math.PI * radius
+
+  if (total === 0) {
+    return (
+      <View style={[styles.donutEmpty, { width: size, height: size, borderRadius: size / 2 }]}>
+        <Text style={styles.donutEmptyText}>No data</Text>
+      </View>
+    )
+  }
+
+  let offset = 0
+  return (
+    <Svg width={size} height={size}>
+      <G rotation={-90} origin={`${cx}, ${cy}`}>
+        {data.map((d) => {
+          if (d.value === 0) return null
+          const segmentLength = (d.value / total) * circumference
+          const dashOffset = -offset
+          offset += segmentLength
+          return (
+            <Circle
+              key={d.label}
+              cx={cx}
+              cy={cy}
+              r={radius}
+              stroke={d.color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={`${segmentLength} ${circumference - segmentLength}`}
+              strokeDashoffset={dashOffset}
+              fill="none"
+            />
+          )
+        })}
+      </G>
+    </Svg>
+  )
+}
+
 const PLATFORMS_KEY = '@provoc_platforms'
 const AVATAR_KEY = '@provoc_avatar'
 
@@ -42,6 +105,7 @@ export default function ProfileScreen() {
   const [user, setUser] = useState<User | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null)
+  const [categoryBreakdown, setCategoryBreakdown] = useState<Record<string, { average: number; count: number }>>({})
   const [loading, setLoading] = useState(true)
   const [enabledPlatforms, setEnabledPlatforms] = useState<Record<string, boolean>>({
     google: true, yelp: true, tripadvisor: false, facebook: false, trustpilot: false,
@@ -103,10 +167,12 @@ export default function ProfileScreen() {
     Promise.all([
       api.get('/reviews/stats'),
       api.get('/reviews/dashboard'),
+      api.get('/reviews/category-breakdown'),
     ])
-      .then(([statsRes, dashRes]) => {
+      .then(([statsRes, dashRes, categoryRes]) => {
         setStats(statsRes.data)
         setDashboard(dashRes.data)
+        setCategoryBreakdown(categoryRes.data ?? {})
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -371,6 +437,70 @@ export default function ProfileScreen() {
         )}
       </View>
 
+      {/* Stats dashboard — placed right after identity info and before
+          account-management actions (password/platforms), so "who you are"
+          is immediately followed by "your activity" before settings. */}
+      <View style={styles.dashboardCard}>
+        <View style={styles.dashboardChartRow}>
+          <DonutChart
+            data={DASHBOARD_STATUS_META.map((m) => ({
+              label: m.label,
+              value: dashboard?.by_status?.[m.key] ?? 0,
+              color: m.color,
+            }))}
+          />
+          <View style={styles.dashboardLegend}>
+            {DASHBOARD_STATUS_META.map((m) => (
+              <View key={m.key} style={styles.legendRow}>
+                <View style={[styles.legendSwatch, { backgroundColor: m.color }]} />
+                <Text style={styles.legendLabel}>{m.label}</Text>
+                <Text style={styles.legendCount}>{dashboard?.by_status?.[m.key] ?? 0}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+        <View style={styles.dashboardStatsRow}>
+          <View style={styles.dashboardStat}>
+            <Text style={styles.dashboardStatNum}>{dashboard?.total_reviews ?? 0}</Text>
+            <Text style={styles.dashboardStatLabel}>Total reviews</Text>
+          </View>
+          <View style={styles.dashboardStat}>
+            <Text style={[styles.dashboardStatNum, { color: '#FFB800' }]}>
+              {stats?.average_rating != null ? stats.average_rating.toFixed(1) : '—'}
+            </Text>
+            <Text style={styles.dashboardStatLabel}>Avg rating</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Your Ratings */}
+      <View style={styles.categoryRatingsCard}>
+        {Object.keys(categoryBreakdown).length === 0 ? (
+          <>
+            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+            <Text style={styles.categoryRatingsEmptyText}>
+              Rate categories on your reviews to see your average ratings here.
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+            {Object.entries(categoryBreakdown).map(([category, { average, count }]) => (
+              <View key={category} style={styles.categoryRow}>
+                <Text style={styles.categoryName}>{category}</Text>
+                <View style={styles.categoryValueRow}>
+                  <Ionicons name="star" size={13} color="#FFB800" />
+                  <Text style={styles.categoryValueText}>{average.toFixed(1)}</Text>
+                  <Text style={styles.categoryCountText}>
+                    ({count} review{count === 1 ? '' : 's'})
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+      </View>
+
       {/* Change password */}
       <View style={styles.section}>
         {editingPassword ? (
@@ -427,21 +557,6 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={16} color="#8B9099" />
           </TouchableOpacity>
         )}
-      </View>
-
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        {[
-          { val: String(dashboard?.total_reviews ?? 0), label: 'Total' },
-          { val: String(stats?.this_month ?? 0), label: 'This month' },
-          { val: stats?.average_rating != null ? stats.average_rating.toFixed(1) : '—', label: 'Avg ⭐', color: '#FFB800' },
-          { val: String(dashboard?.by_status.published ?? 0), label: 'Published', color: '#2D6A4F' },
-        ].map((s) => (
-          <View key={s.label} style={styles.statCard}>
-            <Text style={[styles.statNum, s.color ? { color: s.color } : {}]}>{s.val}</Text>
-            <Text style={styles.statLabel}>{s.label}</Text>
-          </View>
-        ))}
       </View>
 
       {/* Platforms */}
@@ -510,10 +625,38 @@ const styles = StyleSheet.create({
   changePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   changePasswordText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
 
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  statCard: { flex: 1, backgroundColor: '#1A1F2E', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  statNum: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 2 },
-  statLabel: { color: '#8B9099', fontSize: 10 },
+  dashboardCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16, marginBottom: 14,
+  },
+  dashboardChartRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginBottom: 16 },
+  dashboardLegend: { flex: 1, gap: 8 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendSwatch: { width: 10, height: 10, borderRadius: 5 },
+  legendLabel: { flex: 1, color: '#C0C6D4', fontSize: 12 },
+  legendCount: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  dashboardStatsRow: {
+    flexDirection: 'row', gap: 8, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: '#2A3045',
+  },
+  dashboardStat: { flex: 1, alignItems: 'center' },
+  dashboardStatNum: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 2 },
+  dashboardStatLabel: { color: '#8B9099', fontSize: 11 },
+  donutEmpty: { borderWidth: 16, borderColor: '#2A3045', justifyContent: 'center', alignItems: 'center' },
+  donutEmptyText: { color: '#8B9099', fontSize: 11 },
+
+  categoryRatingsCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16, marginBottom: 14,
+  },
+  categoryRatingsTitle: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 10 },
+  categoryRatingsEmptyText: { color: '#8B9099', fontSize: 13, lineHeight: 19 },
+  categoryRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#2A3045',
+  },
+  categoryName: { color: '#C0C6D4', fontSize: 13, flex: 1 },
+  categoryValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  categoryValueText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  categoryCountText: { color: '#8B9099', fontSize: 11 },
 
   section: { backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16, marginBottom: 16 },
   sectionTitle: { color: '#8B9099', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },

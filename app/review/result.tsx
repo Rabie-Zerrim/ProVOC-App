@@ -132,7 +132,7 @@ export default function ResultScreen() {
     }
   }
 
-  const handleGooglePost = async (url: string, reviewText: string) => {
+  const openPlatformPostFlow = async (url: string, reviewText: string) => {
     try {
       await Clipboard.setStringAsync(reviewText)
       // InAppBrowser can throw when checking availability (e.g. in Expo Go,
@@ -185,7 +185,7 @@ export default function ResultScreen() {
         )
       }
     } catch (e: any) {
-      console.log('GOOGLE POST CATCH:', e?.message, e)
+      console.log('POST FLOW CATCH:', e?.message, e)
       await Clipboard.setStringAsync(reviewText)
       await Linking.openURL(url)
     }
@@ -244,20 +244,11 @@ export default function ResultScreen() {
           'search.google.com/local/writereview?',
         )
 
-        await handleGooglePost(reviewUrl, reviewText)
+        await openPlatformPostFlow(reviewUrl, reviewText)
       } else if (platformSlug === 'yelp') {
-        await Clipboard.setStringAsync(reviewText)
         const url: string = data.url ?? ''
         if (url) {
-          await Linking.openURL(url)
-          Alert.alert(
-            'Did you post the review?',
-            'Your review was copied to clipboard.',
-            [
-              { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
-              { text: 'Not yet', style: 'cancel' },
-            ]
-          )
+          await openPlatformPostFlow(url, reviewText)
         } else {
           const q = encodeURIComponent(`${businessName} ${bizAddress}`.trim())
           Alert.alert(
