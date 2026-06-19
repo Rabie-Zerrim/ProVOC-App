@@ -896,3 +896,72 @@ Hypotheses not yet tested:
 - Worth checking Railway's actual request logs (not just deploy logs) for this specific failing request to see if it's being rejected at the edge/proxy layer before reaching the NestJS app at all, which would explain why no response body is ever formed.
 
 Flagged for investigation in a future session — not resolved as of 2026-06-17.
+
+---
+
+## 22. SESSION 2026-06-19 — PROFILE FEATURE SET, POSTING FLOW FIXES, AI CHAT FIXES, AND DASHBOARD RELOCATION
+
+### 1. Profile screen — three placeholder features made real
+
+`app/(tabs)/profile.tsx` previously had three non-functional pieces, all now backend-connected:
+- **Avatar**: `PATCH /users/me/avatar` with a base64 data URI (via `expo-image-picker`'s `base64: true` option). Previously AsyncStorage-only, never synced to the server.
+- **Edit name/email**: new inline edit UI (tap pencil → two fields → Save/Cancel), `PATCH /users/me`, 409 conflict shows inline "email already in use" error.
+- **Platform preferences**: `GET`/`PATCH /users/me/preferences` (via `withNetworkErrorRetry`). `preferred_networks` is the ENABLED-platforms list (confirmed final semantics — an inclusion list, not exclusion). Previously AsyncStorage-only.
+- **Password change** (new): inline form (current/new/confirm), `PATCH /users/me/password`, 401 shows "Current password is incorrect" on the specific field.
+
+### 2. Avatar persistence bug — root cause + cross-file fix
+
+Avatar showed correctly on Profile but not after a fresh login, and not on Home. Root cause: `/auth/login` and `/auth/register` return a minimal user object without `avatar_data`; only `/auth/me` includes it.
+- `app/auth.tsx`: now calls `GET /auth/me` (via `withNetworkErrorRetry`) right after login/register to cache the full profile; falls back to the minimal shape if that call fails.
+- `app/(tabs)/profile.tsx`: broadened the `fetchMe()` trigger condition to also fire when `avatar_data` is `undefined` (not just when `display_name` is missing).
+- `app/(tabs)/home.tsx`: was reading avatar from a separate, never-updated AsyncStorage-only path — fixed to prefer `user.avatar_data`, matching Profile's pattern.
+
+### 3. Login/register keyboard overlay fix
+
+`app/auth.tsx`: `KeyboardAvoidingView`'s `behavior` prop was `undefined` on Android (only set for iOS), hiding fields behind the keyboard. Fixed to `'height'` for Android.
+
+### 4. Dashboard — added to Reviews tab, then relocated to Profile
+
+Status badge icons (`checkmark-circle`/`time-outline`/`create-outline`/`close-circle`) + slightly larger badges added to `app/(tabs)/reviews.tsx` — this stays on Reviews.
+
+A donut chart (new dependency: `react-native-svg` — requires an APK rebuild to take effect on a built app) + legend + totals, plus a "Your Ratings" category-breakdown card, were added to the Reviews tab but pushed the review list down to ~1 visible item per scroll — both were relocated entirely to the Profile tab instead, replacing the old 4-card stat row there. Reviews tab today = status tabs + star filter + full-height review list + icon badges only.
+
+### 5. Category ratings now actually saved and displayed
+
+`app/review/breakdown.tsx`: star ratings were captured but never persisted. Now flattens platform-nested ratings into a flat category map (averaged across platform cards) and sends `PATCH /reviews/:id { category_ratings }` via `withNetworkErrorRetry`, non-blocking on failure. Displayed via Profile's "Your Ratings" card, sourced from `GET /reviews/category-breakdown`. (Backend fields/endpoints documented in `HANDOVER_BFF.md`.)
+
+### 6. Selected-networks persistence
+
+Fixes: reopening an old review from the Reviews tab always showed every platform the listing had, not just the originally selected ones. `app/review/result.tsx` now fires a one-time `PATCH` on first live-flow load persisting the actually-filtered network slugs; filtering logic prefers the persisted value (`review.selected_networks`) over the nav param, falling back to "all networks" only when neither was ever set (e.g. pre-feature reviews). Backend field documented in `HANDOVER_BFF.md`.
+
+### 7. Google/Yelp posting flow fixes
+
+- `handleMarkAsPosted`: `PATCH` status value changed from `'published'` to `'posted'` (matches the value `STATUS_COLORS`/dashboard actually use — `'published'` was a vestigial, never-reachable value from an earlier abandoned automatic-posting design). Wrapped in `withNetworkErrorRetry`; now shows a visible Alert on failure instead of silently swallowing it.
+- **Real bug found and fixed**: `InAppBrowser` can resolve to `null` entirely in Expo Go (the native module isn't linked there at all) — calling `.isAvailable()` on it threw synchronously, which was being silently caught by the function's outer catch, killing the "did you post?" confirmation dialog every single time on Expo Go. Fixed with a dedicated nested try/catch specifically around the availability check, so any internal `InAppBrowser` failure now safely falls through to the working `Linking.openURL` path instead of crashing out before the dialog can show.
+- `handleGooglePost` renamed to `openPlatformPostFlow` (the logic was already fully generic) — Yelp's posting branch now shares this exact same Custom-Tab-attempt + confirmation-dialog flow instead of its own plain `Linking.openURL` implementation with no Custom Tab attempt at all.
+- Google's non-Custom-Tab fallback branch was missing the confirmation dialog the Custom Tab branch had (only existed inside the `InAppBrowser.isAvailable()` branch) — added so both branches end the same way.
+
+### 8. AI chat screen fixes (`app/review/chat.tsx`)
+
+- `handleRetry` (rephrase) and `handleRegenerate` both had silent-failure paths (AI returns empty/falsy text → reverts to the previous version with zero user feedback). Added `Alert.alert` on both the empty-result branch and the catch block (where missing).
+- Real root cause found for "rephrase/regenerate doesn't incorporate new messages": `handleRetry` previously only ever rephrased the static `generatedReview` text, completely blind to anything typed afterward in chat. Now tracks `lastGeneratedMessageCountRef` (updated at every generate/rephrase/regenerate success point) and folds in any new user messages since the last generation into the rephrase instruction. (Separately — and more significantly — a pv-bff bug where `previous_messages` was silently never forwarded to pv-ai at all was also found and fixed; see `HANDOVER_BFF.md` and `HANDOVER_AI.md`. Both fixes were needed together for regenerate to genuinely incorporate new context end-to-end, confirmed via live testing.)
+- Input bar: added an always-visible mic button (direct nav to `/review/recording`, same target as the existing `tapToSpeak` button). The old conditional mic-toggle button became visibly redundant (duplicated on screen once a review was generated) and was removed; other `voiceMode`-dependent behaviors (`tapToSpeak` visibility, send button icon/color) were left untouched.
+
+### 9. Recording screen fixes (`app/review/recording.tsx`)
+
+- `POST /reviews` and `POST /reviews/:id/transcribe` wrapped in `withNetworkErrorRetry`.
+- Added a visible "Uploading and transcribing... this can take up to 3 minutes" message during upload (previously a bare spinner with no context).
+- Transcribe timeout raised from 120s to 180s — Railway logs showed real transcription taking 130-135s on the baseline Whisper model in production; the old timeout was producing false "server unreachable" errors on requests that were actually succeeding server-side.
+- `utils/withNetworkErrorRetry.ts` gained an optional `retryOnTimeout` param (default `true`; every other existing call site unaffected by the default). The transcribe call opts out (`retryOnTimeout: false`), since a timeout there means "still working, just slow," not "failed" — retrying would silently double an already-long wait to ~6 minutes worst case.
+
+### 10. New duplicate-review guard on search
+
+`app/search.tsx`'s `handleSelect`: after a listing save resolves, now calls `GET /reviews/recent-check?business_id=...` (soft, non-blocking) — if the business was reviewed in the last 24h, shows a "Review again?" confirmation before proceeding to network select. (Backend endpoint documented in `HANDOVER_BFF.md`.)
+
+### Known open issue, unchanged
+
+The previously-logged Shake Shack/Istanbul reproducible save failure (section 21) was not revisited this session and remains unresolved.
+
+### Note: new native dependency requiring an APK rebuild
+
+`react-native-svg` was added this session (for the donut chart, now on the Profile tab). Any APK build predating this dependency will not show the chart correctly until rebuilt — Expo Go/dev client picks it up without a rebuild.

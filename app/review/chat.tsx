@@ -701,11 +701,6 @@ export default function ChatScreen() {
             >
               <Ionicons name="mic-outline" size={18} color="#8B9099" />
             </TouchableOpacity>
-            {generatedReview && !voiceMode && (
-              <TouchableOpacity style={styles.sendBtn} onPress={() => setVoiceMode(true)}>
-                <Ionicons name="mic-outline" size={18} color="#8B9099" />
-              </TouchableOpacity>
-            )}
             <TouchableOpacity
               style={styles.sendBtn}
               onPress={generatedReview && voiceMode ? () => setVoiceMode(false) : sendMessage}
