@@ -69,13 +69,13 @@ export default function RecordingScreen() {
 
       let reviewId = params.review_id
       if (!reviewId) {
-        const { data } = await withNetworkErrorRetry(() => api.post('/reviews', {
+        const { data } = await api.post('/reviews', {
           listing_id: params.listing_id,
           review_text: ' ',
           rating: Number(params.rating) || 4,
           tone: 'neutral',
           language: 'en',
-        }))
+        })
         reviewId = data.review_id ?? data.id
       }
 

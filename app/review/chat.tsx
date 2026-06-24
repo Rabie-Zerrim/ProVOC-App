@@ -186,15 +186,16 @@ export default function ChatScreen() {
     setLoading(true)
     try {
       if (!rid) {
-        const { data } = await withNetworkErrorRetry(() => api.post('/reviews', {
+        const { data } = await api.post('/reviews', {
           listing_id: params.listing_id,
           review_text: params.transcript ?? ' ',
           rating: Number(params.rating) || 4,
           tone: 'neutral',
           language: 'en',
-        }, { timeout: 30000 }))
+        }, { timeout: 30000 })
         rid = data.review_id ?? data.id
         setReviewId(rid)
+        router.setParams({ review_id: rid })
       }
 
       const { data } = await withNetworkErrorRetry(() => api.post(

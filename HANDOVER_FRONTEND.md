@@ -965,3 +965,111 @@ The previously-logged Shake Shack/Istanbul reproducible save failure (section 21
 ### Note: new native dependency requiring an APK rebuild
 
 `react-native-svg` was added this session (for the donut chart, now on the Profile tab). Any APK build predating this dependency will not show the chart correctly until rebuilt — Expo Go/dev client picks it up without a rebuild.
+
+---
+
+## 24. SESSION 2026-06-24 — MERGE EDIT PROFILE + CHANGE PASSWORD INTO ONE MODAL
+
+### Change: two modals → one unified "Edit Profile" modal (`app/(tabs)/profile.tsx`)
+
+The two modals introduced in session 23 (Edit Profile with name/email, Change Password with 3 fields) have been merged into a single "Edit Profile" modal with all five fields and a visual divider between the profile section and the optional password-change section.
+
+**Modal layout (top to bottom):**
+1. Title: "Edit Profile"
+2. Display name input
+3. Email input
+4. Inline error for 409 ("Email already in use.") — shown under email
+5. Divider + "CHANGE PASSWORD" section label
+6. Current password input
+7. Inline error for 401 ("Current password is incorrect.") — shown under current password
+8. New password input
+9. Confirm new password input
+10. Inline error for mismatch / length / generic — shown under confirm
+11. Cancel / Save buttons
+
+**Save logic (`handleSave`):**
+- Password fields are optional — only validated/sent if any of the three are non-empty
+- Client-side validation (length ≥ 8, new === confirm) runs before any API call
+- If profile fields changed: `PATCH /users/me` with `{ display_name?, email? }` — JWT via `api` interceptor, 409 → email error
+- If password fields filled: `PATCH /users/me/password` with `{ current_password, new_password }` — 401 → current-password error
+- Both calls can run in the same Save: profile call runs first; if it throws, password call is skipped. 409 and 401 are distinguishable by status code so the right inline error is always shown.
+- Password-change success shows Alert ("Password changed"); profile-only save closes silently (same UX as before).
+- Nothing changed → close modal without any API call.
+
+**Removed:** separate "Change password" row/section from the profile screen, `startEditingPassword` / `cancelEditingPassword` / `handleSavePassword` functions, `editingPassword` and `savingPassword` state vars. Consolidated `savingProfile` + `savingPassword` into single `saving` flag.
+
+**Modal UX:** `KeyboardAvoidingView` wraps the modal (behavior: 'padding' on iOS, 'height' on Android); `ScrollView` inside the card with `maxHeight: '88%'` so all fields are reachable on small screens.
+
+**PATCH /users/me verification:** call at `profile.tsx:223` sends `{ display_name?, email? }` (only changed fields). Auth header is attached automatically by the `api` axios interceptor in `services/api.ts:7-10` (`Authorization: Bearer <token>` from `@provoc_token`). 409 handling is correct. No changes needed.
+
+`tsc --noEmit` clean. No new dependencies.
+
+---
+
+## 23. SESSION 2026-06-24 — PROFILE EDIT FLOWS CONVERTED TO MODAL POPUPS
+
+### Change: inline edit UI → Modal overlays (`app/(tabs)/profile.tsx`)
+
+Both profile-edit flows were previously inline (expanding fields in place). Both are now React Native `Modal` components with a semi-transparent dark backdrop (`rgba(0,0,0,0.6)`) and a centered dark-card overlay matching the app's dark theme.
+
+**Edit Profile modal** (triggered by the pencil icon on the user card):
+- Title: "Edit Profile"
+- Fields: `display_name`, `email`
+- Inline error on 409 conflict: "Email already in use."
+- Save calls `PATCH /users/me`, closes modal on success, updates displayed name/email
+- Cancel closes modal and discards changes
+- Logout button is now always visible (was conditionally hidden while the inline form was open)
+
+**Change Password modal** (triggered by the "Change password" row):
+- Title: "Change Password"
+- Fields: current password, new password, confirm new password
+- Inline error on 401: "Current password is incorrect." (shown beneath current-password field)
+- Inline error for mismatch / length: shown beneath confirm field (client-side, no API call)
+- Save validates new === confirm first, then calls `PATCH /users/me/password`, closes modal on success
+- Cancel closes modal and clears all fields
+
+**No backend changes.** API calls, error-handling logic, and state variables are identical to the prior inline implementation — only the JSX rendering changed.
+
+**Styles added** (`modalBackdrop`, `modalCard`, `modalTitle`, `modalInput`, `modalError`, `modalActions`, `modalCancelBtn`, `modalCancelText`, `modalSaveBtn`, `modalSaveText`). Old inline-edit styles (`profileInput`, `profileError`, `profileEditActions`, `profileCancelBtn`, `profileCancelText`, `profileSaveBtn`, `profileSaveText`) removed.
+
+`tsc --noEmit` clean after the change. No new dependencies.
+
+---
+
+## 25. SESSION 2026-06-24 — DUPLICATE REVIEW FIXES (FRONTEND)
+
+These two changes complement the backend idempotency guard added in `HANDOVER_BFF.md §31`. Together, all three layers close the duplicate-review bug.
+
+### Fix 1 — `chat.tsx`: persist `review_id` into route params after creation
+
+`initChat()` creates a new review when `params.review_id` is absent (i.e. every fresh mount of `chat.tsx` coming from the Regular Review or Smart Review path). The existing `setReviewId(rid)` call updated React state, but React state is destroyed when the screen unmounts. In expo-router, pressing Back on `chat.tsx` pops it off the stack; navigating forward again from `type.tsx` pushes a new instance with no `review_id` in params — so `initChat()` ran again and called `POST /reviews` again.
+
+**Fix:** after `POST /reviews` succeeds and `setReviewId(rid)` is called, `router.setParams({ review_id: rid })` is now also called. This writes `review_id` into the current screen's navigation params (the `expo-router` route state) without navigating. When the user presses Back and then pushes the same route again, expo-router restores the params from the stack — `params.review_id` is now populated on the new mount, so `initChat()` skips the `POST /reviews` call entirely.
+
+**File changed:** [app/review/chat.tsx](app/review/chat.tsx) — inside `initChat()`, line after `setReviewId(rid)`:
+
+```typescript
+rid = data.review_id ?? data.id
+setReviewId(rid)
+router.setParams({ review_id: rid })   // ← added
+```
+
+### Fix 2 — `chat.tsx` + `recording.tsx`: remove `withNetworkErrorRetry` from `POST /reviews`
+
+`POST /reviews` in both files was wrapped in `withNetworkErrorRetry`. That wrapper retries once on any error where `e?.response === undefined` (a network error with no HTTP response). Since `POST /reviews` is not strictly idempotent (even with the backend guard, a retry that races before the first insert commits could create a second row), the retry added an unreliable path to duplicates without meaningful benefit — transient network failures on `POST /reviews` are better surfaced as an error to the user than silently retried.
+
+`withNetworkErrorRetry` is retained on every other call where it already exists (`chat/start`, `transcribe`, etc.).
+
+**Files changed:**
+
+| File | Change |
+|---|---|
+| [app/review/chat.tsx](app/review/chat.tsx) | `initChat()`: `POST /reviews` call unwrapped from `withNetworkErrorRetry` |
+| [app/review/recording.tsx](app/review/recording.tsx) | `stopAndTranscribe()`: `POST /reviews` call unwrapped from `withNetworkErrorRetry` |
+
+### Combined effect
+
+With all three layers in place:
+- If the user navigates Back from `chat.tsx` and re-enters, `params.review_id` is now set → `initChat()` skips `POST /reviews` → backend never sees a second create call.
+- If a network hiccup occurs on `POST /reviews`, the call fails once rather than silently retrying.
+- If the client somehow does send two `POST /reviews` calls for the same `(user_id, listing_id)` pair (e.g. through some other code path), the backend returns the existing draft instead of creating a new row.
