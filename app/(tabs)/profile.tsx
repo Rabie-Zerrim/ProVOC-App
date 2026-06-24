@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, Switch, Image, TextInput,
+  ActivityIndicator, Alert, Switch, Image, TextInput, Modal,
+  KeyboardAvoidingView, Platform,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
@@ -111,18 +112,18 @@ export default function ProfileScreen() {
     google: true, yelp: true, tripadvisor: false, facebook: false, trustpilot: false,
   })
   const [avatarUri, setAvatarUri] = useState<string | null>(null)
+
+  // Unified edit-profile modal state
   const [editingProfile, setEditingProfile] = useState(false)
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
-  const [profileError, setProfileError] = useState('')
-  const [savingProfile, setSavingProfile] = useState(false)
-  const [editingPassword, setEditingPassword] = useState(false)
+  const [profileError, setProfileError] = useState('')       // 409 shown under email
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [currentPasswordError, setCurrentPasswordError] = useState('')
-  const [passwordError, setPasswordError] = useState('')
-  const [savingPassword, setSavingPassword] = useState(false)
+  const [currentPasswordError, setCurrentPasswordError] = useState('') // 401
+  const [passwordError, setPasswordError] = useState('')     // mismatch / length / generic
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -221,99 +222,90 @@ export default function ProfileScreen() {
     }
   }
 
-  const startEditingProfile = () => {
+  const openEditModal = () => {
     setEditName(user?.display_name ?? '')
     setEditEmail(user?.email ?? '')
     setProfileError('')
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setCurrentPasswordError('')
+    setPasswordError('')
     setEditingProfile(true)
   }
 
-  const cancelEditingProfile = () => {
+  const closeEditModal = () => {
     setEditingProfile(false)
     setProfileError('')
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setCurrentPasswordError('')
+    setPasswordError('')
   }
 
-  const handleSaveProfile = async () => {
+  const handleSave = async () => {
+    setProfileError('')
+    setCurrentPasswordError('')
+    setPasswordError('')
+
     const trimmedName = editName.trim()
     const trimmedEmail = editEmail.trim()
-    const payload: { display_name?: string; email?: string } = {}
-    if (trimmedName && trimmedName !== user?.display_name) payload.display_name = trimmedName
-    if (trimmedEmail && trimmedEmail !== user?.email) payload.email = trimmedEmail
+    const profilePayload: { display_name?: string; email?: string } = {}
+    if (trimmedName && trimmedName !== user?.display_name) profilePayload.display_name = trimmedName
+    if (trimmedEmail && trimmedEmail !== user?.email) profilePayload.email = trimmedEmail
 
-    if (Object.keys(payload).length === 0) {
-      setEditingProfile(false)
+    const changingPassword = !!(currentPassword || newPassword || confirmPassword)
+
+    if (changingPassword) {
+      if (newPassword.length < 8) {
+        setPasswordError('Password must be at least 8 characters.')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        setPasswordError('Passwords do not match.')
+        return
+      }
+    }
+
+    if (Object.keys(profilePayload).length === 0 && !changingPassword) {
+      closeEditModal()
       return
     }
 
-    setProfileError('')
-    setSavingProfile(true)
+    setSaving(true)
     try {
-      const { data } = await api.patch('/users/me', payload)
-      const updatedUser = { ...user, ...data }
-      setUser(updatedUser)
-      await AsyncStorage.setItem('@provoc_user', JSON.stringify(updatedUser))
-      setEditingProfile(false)
+      if (Object.keys(profilePayload).length > 0) {
+        // PATCH /users/me — body: { display_name?, email? }
+        // JWT attached automatically by api interceptor (services/api.ts)
+        // 409 → email conflict
+        const { data } = await api.patch('/users/me', profilePayload)
+        const updatedUser = { ...user, ...data }
+        setUser(updatedUser)
+        await AsyncStorage.setItem('@provoc_user', JSON.stringify(updatedUser))
+      }
+
+      if (changingPassword) {
+        await api.patch('/users/me/password', {
+          current_password: currentPassword,
+          new_password: newPassword,
+        })
+      }
+
+      closeEditModal()
+      if (changingPassword) {
+        Alert.alert('Password changed', 'Your password has been updated.')
+      }
     } catch (err: any) {
       if (err?.response?.status === 409) {
-        setProfileError('That email is already in use.')
-      } else {
-        setProfileError('Could not save changes. Please try again.')
-      }
-    } finally {
-      setSavingProfile(false)
-    }
-  }
-
-  const startEditingPassword = () => {
-    setCurrentPassword('')
-    setNewPassword('')
-    setConfirmPassword('')
-    setCurrentPasswordError('')
-    setPasswordError('')
-    setEditingPassword(true)
-  }
-
-  const cancelEditingPassword = () => {
-    setEditingPassword(false)
-    setCurrentPassword('')
-    setNewPassword('')
-    setConfirmPassword('')
-    setCurrentPasswordError('')
-    setPasswordError('')
-  }
-
-  const handleSavePassword = async () => {
-    setCurrentPasswordError('')
-    setPasswordError('')
-
-    if (newPassword.length < 8) {
-      setPasswordError('Password must be at least 8 characters.')
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('Passwords do not match.')
-      return
-    }
-
-    setSavingPassword(true)
-    try {
-      await api.patch('/users/me/password', {
-        current_password: currentPassword,
-        new_password: newPassword,
-      })
-      setEditingPassword(false)
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
-      Alert.alert('Password changed', 'Your password has been updated.')
-    } catch (err: any) {
-      if (err?.response?.status === 401) {
+        setProfileError('Email already in use.')
+      } else if (err?.response?.status === 401) {
         setCurrentPasswordError('Current password is incorrect.')
       } else {
-        setPasswordError('Could not change password. Please try again.')
+        setPasswordError('Could not save changes. Please try again.')
       }
     } finally {
-      setSavingPassword(false)
+      setSaving(false)
     }
   }
 
@@ -359,225 +351,223 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 80 }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* User card */}
-      <View style={styles.userCard}>
-        <TouchableOpacity onPress={pickAvatar} style={styles.avatarWrapper}>
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? 'P'}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cameraBadge}>
-            <Ionicons name="camera" size={11} color="#fff" />
-          </View>
-        </TouchableOpacity>
-        <View style={styles.userInfo}>
-          {editingProfile ? (
-            <View>
-              <TextInput
-                style={styles.profileInput}
-                value={editName}
-                onChangeText={setEditName}
-                placeholder="Display name"
-                placeholderTextColor="#8B9099"
-                autoFocus
-              />
-              <TextInput
-                style={styles.profileInput}
-                value={editEmail}
-                onChangeText={setEditEmail}
-                placeholder="Email"
-                placeholderTextColor="#8B9099"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              {!!profileError && <Text style={styles.profileError}>{profileError}</Text>}
-              <View style={styles.profileEditActions}>
-                <TouchableOpacity onPress={cancelEditingProfile} style={styles.profileCancelBtn} disabled={savingProfile}>
-                  <Ionicons name="close" size={14} color="#8B9099" />
-                  <Text style={styles.profileCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleSaveProfile} style={styles.profileSaveBtn} disabled={savingProfile}>
-                  {savingProfile ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                      <Text style={styles.profileSaveText}>Save</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+    <>
+      <ScrollView
+        style={[styles.container, { paddingTop: insets.top }]}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 80 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* User card */}
+        <View style={styles.userCard}>
+          <TouchableOpacity onPress={pickAvatar} style={styles.avatarWrapper}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {user?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? 'P'}
+                </Text>
               </View>
+            )}
+            <View style={styles.cameraBadge}>
+              <Ionicons name="camera" size={11} color="#fff" />
             </View>
-          ) : (
+          </TouchableOpacity>
+          <View style={styles.userInfo}>
             <View style={styles.userNameRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.userName}>{user?.display_name || user?.email || '—'}</Text>
                 <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
               </View>
-              <TouchableOpacity onPress={startEditingProfile} hitSlop={8}>
+              <TouchableOpacity onPress={openEditModal} hitSlop={8}>
                 <Ionicons name="create-outline" size={16} color="#8B9099" />
               </TouchableOpacity>
             </View>
-          )}
-        </View>
-        {!editingProfile && (
+          </View>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
             <Ionicons name="log-out-outline" size={20} color="#EF4444" />
           </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Stats dashboard — placed right after identity info and before
-          account-management actions (password/platforms), so "who you are"
-          is immediately followed by "your activity" before settings. */}
-      <View style={styles.dashboardCard}>
-        <View style={styles.dashboardChartRow}>
-          <DonutChart
-            data={DASHBOARD_STATUS_META.map((m) => ({
-              label: m.label,
-              value: dashboard?.by_status?.[m.key] ?? 0,
-              color: m.color,
-            }))}
-          />
-          <View style={styles.dashboardLegend}>
-            {DASHBOARD_STATUS_META.map((m) => (
-              <View key={m.key} style={styles.legendRow}>
-                <View style={[styles.legendSwatch, { backgroundColor: m.color }]} />
-                <Text style={styles.legendLabel}>{m.label}</Text>
-                <Text style={styles.legendCount}>{dashboard?.by_status?.[m.key] ?? 0}</Text>
-              </View>
-            ))}
-          </View>
         </View>
-        <View style={styles.dashboardStatsRow}>
-          <View style={styles.dashboardStat}>
-            <Text style={styles.dashboardStatNum}>{dashboard?.total_reviews ?? 0}</Text>
-            <Text style={styles.dashboardStatLabel}>Total reviews</Text>
-          </View>
-          <View style={styles.dashboardStat}>
-            <Text style={[styles.dashboardStatNum, { color: '#FFB800' }]}>
-              {stats?.average_rating != null ? stats.average_rating.toFixed(1) : '—'}
-            </Text>
-            <Text style={styles.dashboardStatLabel}>Avg rating</Text>
-          </View>
-        </View>
-      </View>
 
-      {/* Your Ratings */}
-      <View style={styles.categoryRatingsCard}>
-        {Object.keys(categoryBreakdown).length === 0 ? (
-          <>
-            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
-            <Text style={styles.categoryRatingsEmptyText}>
-              Rate categories on your reviews to see your average ratings here.
-            </Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
-            {Object.entries(categoryBreakdown).map(([category, { average, count }]) => (
-              <View key={category} style={styles.categoryRow}>
-                <Text style={styles.categoryName}>{category}</Text>
-                <View style={styles.categoryValueRow}>
-                  <Ionicons name="star" size={13} color="#FFB800" />
-                  <Text style={styles.categoryValueText}>{average.toFixed(1)}</Text>
-                  <Text style={styles.categoryCountText}>
-                    ({count} review{count === 1 ? '' : 's'})
-                  </Text>
+        {/* Stats dashboard — placed right after identity info and before
+            account-management actions (password/platforms), so "who you are"
+            is immediately followed by "your activity" before settings. */}
+        <View style={styles.dashboardCard}>
+          <View style={styles.dashboardChartRow}>
+            <DonutChart
+              data={DASHBOARD_STATUS_META.map((m) => ({
+                label: m.label,
+                value: dashboard?.by_status?.[m.key] ?? 0,
+                color: m.color,
+              }))}
+            />
+            <View style={styles.dashboardLegend}>
+              {DASHBOARD_STATUS_META.map((m) => (
+                <View key={m.key} style={styles.legendRow}>
+                  <View style={[styles.legendSwatch, { backgroundColor: m.color }]} />
+                  <Text style={styles.legendLabel}>{m.label}</Text>
+                  <Text style={styles.legendCount}>{dashboard?.by_status?.[m.key] ?? 0}</Text>
                 </View>
+              ))}
+            </View>
+          </View>
+          <View style={styles.dashboardStatsRow}>
+            <View style={styles.dashboardStat}>
+              <Text style={styles.dashboardStatNum}>{dashboard?.total_reviews ?? 0}</Text>
+              <Text style={styles.dashboardStatLabel}>Total reviews</Text>
+            </View>
+            <View style={styles.dashboardStat}>
+              <Text style={[styles.dashboardStatNum, { color: '#FFB800' }]}>
+                {stats?.average_rating != null ? stats.average_rating.toFixed(1) : '—'}
+              </Text>
+              <Text style={styles.dashboardStatLabel}>Avg rating</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Your Ratings */}
+        <View style={styles.categoryRatingsCard}>
+          {Object.keys(categoryBreakdown).length === 0 ? (
+            <>
+              <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+              <Text style={styles.categoryRatingsEmptyText}>
+                Rate categories on your reviews to see your average ratings here.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.categoryRatingsTitle}>Your Ratings</Text>
+              {Object.entries(categoryBreakdown).map(([category, { average, count }]) => (
+                <View key={category} style={styles.categoryRow}>
+                  <Text style={styles.categoryName}>{category}</Text>
+                  <View style={styles.categoryValueRow}>
+                    <Ionicons name="star" size={13} color="#FFB800" />
+                    <Text style={styles.categoryValueText}>{average.toFixed(1)}</Text>
+                    <Text style={styles.categoryCountText}>
+                      ({count} review{count === 1 ? '' : 's'})
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+
+        {/* Platforms */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Review platforms</Text>
+          {PLATFORMS.map((p) => (
+            <View key={p.key} style={styles.platformRow}>
+              <View style={[styles.platformDot, { backgroundColor: p.color }]}>
+                <PlatformIcon icon={p.icon} color={p.color} />
               </View>
-            ))}
-          </>
-        )}
-      </View>
+              <Text style={styles.platformName}>{p.label}</Text>
+              <Switch
+                value={enabledPlatforms[p.key] ?? false}
+                onValueChange={(v) => togglePlatform(p.key, v)}
+                trackColor={{ false: '#2A3045', true: '#2D6A4F' }}
+                thumbColor="#fff"
+              />
+            </View>
+          ))}
+        </View>
+      </ScrollView>
 
-      {/* Change password */}
-      <View style={styles.section}>
-        {editingPassword ? (
-          <View>
-            <Text style={styles.sectionTitle}>Change password</Text>
-            <TextInput
-              style={styles.profileInput}
-              value={currentPassword}
-              onChangeText={setCurrentPassword}
-              placeholder="Current password"
-              placeholderTextColor="#8B9099"
-              secureTextEntry
-              autoFocus
-            />
-            {!!currentPasswordError && <Text style={styles.profileError}>{currentPasswordError}</Text>}
-            <TextInput
-              style={styles.profileInput}
-              value={newPassword}
-              onChangeText={setNewPassword}
-              placeholder="New password"
-              placeholderTextColor="#8B9099"
-              secureTextEntry
-            />
-            <TextInput
-              style={styles.profileInput}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Confirm new password"
-              placeholderTextColor="#8B9099"
-              secureTextEntry
-            />
-            {!!passwordError && <Text style={styles.profileError}>{passwordError}</Text>}
-            <View style={styles.profileEditActions}>
-              <TouchableOpacity onPress={cancelEditingPassword} style={styles.profileCancelBtn} disabled={savingPassword}>
-                <Ionicons name="close" size={14} color="#8B9099" />
-                <Text style={styles.profileCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSavePassword} style={styles.profileSaveBtn} disabled={savingPassword}>
-                {savingPassword ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark" size={14} color="#fff" />
-                    <Text style={styles.profileSaveText}>Save</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+      {/* Edit Profile Modal — name, email, and optional password change in one place */}
+      <Modal
+        visible={editingProfile}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKAV}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                bounces={false}
+              >
+                <Text style={styles.modalTitle}>Edit Profile</Text>
+
+                <TextInput
+                  style={styles.modalInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Display name"
+                  placeholderTextColor="#8B9099"
+                  autoFocus
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  value={editEmail}
+                  onChangeText={setEditEmail}
+                  placeholder="Email"
+                  placeholderTextColor="#8B9099"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {!!profileError && <Text style={styles.modalError}>{profileError}</Text>}
+
+                <View style={styles.modalDivider} />
+                <Text style={styles.modalSectionLabel}>Change password</Text>
+
+                <TextInput
+                  style={styles.modalInput}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  placeholder="Current password"
+                  placeholderTextColor="#8B9099"
+                  secureTextEntry
+                />
+                {!!currentPasswordError && <Text style={styles.modalError}>{currentPasswordError}</Text>}
+                <TextInput
+                  style={styles.modalInput}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="New password"
+                  placeholderTextColor="#8B9099"
+                  secureTextEntry
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm new password"
+                  placeholderTextColor="#8B9099"
+                  secureTextEntry
+                />
+                {!!passwordError && <Text style={styles.modalError}>{passwordError}</Text>}
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={closeEditModal}
+                    style={styles.modalCancelBtn}
+                    disabled={saving}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleSave}
+                    style={styles.modalSaveBtn}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.modalSaveText}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
-        ) : (
-          <TouchableOpacity style={styles.changePasswordRow} onPress={startEditingPassword}>
-            <Ionicons name="lock-closed-outline" size={18} color="#8B9099" />
-            <Text style={styles.changePasswordText}>Change password</Text>
-            <Ionicons name="chevron-forward" size={16} color="#8B9099" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Platforms */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Review platforms</Text>
-        {PLATFORMS.map((p) => (
-          <View key={p.key} style={styles.platformRow}>
-            <View style={[styles.platformDot, { backgroundColor: p.color }]}>
-              <PlatformIcon icon={p.icon} color={p.color} />
-            </View>
-            <Text style={styles.platformName}>{p.label}</Text>
-            <Switch
-              value={enabledPlatforms[p.key] ?? false}
-              onValueChange={(v) => togglePlatform(p.key, v)}
-              trackColor={{ false: '#2A3045', true: '#2D6A4F' }}
-              thumbColor="#fff"
-            />
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   )
 }
 
@@ -603,27 +593,6 @@ const styles = StyleSheet.create({
   userName: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 2 },
   userEmail: { color: '#8B9099', fontSize: 12 },
   logoutBtn: { padding: 8 },
-
-  profileInput: {
-    color: '#fff', fontSize: 14, backgroundColor: '#0D0D0D', borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8,
-    borderWidth: 1, borderColor: '#2D6A4F',
-  },
-  profileError: { color: '#EF4444', fontSize: 12, marginBottom: 8 },
-  profileEditActions: { flexDirection: 'row', gap: 8 },
-  profileCancelBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#0D0D0D', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
-  },
-  profileCancelText: { color: '#8B9099', fontSize: 12, fontWeight: '600' },
-  profileSaveBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#2D6A4F', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
-  },
-  profileSaveText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-
-  changePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  changePasswordText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
 
   dashboardCard: {
     backgroundColor: '#1A1F2E', borderRadius: 16, padding: 16, marginBottom: 14,
@@ -663,4 +632,91 @@ const styles = StyleSheet.create({
   platformRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12, borderBottomWidth: 1, borderBottomColor: '#0D0D0D' },
   platformDot: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center' },
   platformName: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
+
+  // Modal
+  modalKAV: { flex: 1 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxHeight: '88%',
+    backgroundColor: '#1A1F2E',
+    borderRadius: 16,
+    padding: 24,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  modalInput: {
+    color: '#fff',
+    fontSize: 14,
+    backgroundColor: '#0D0D0D',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2A3045',
+  },
+  modalError: {
+    color: '#EF4444',
+    fontSize: 12,
+    marginBottom: 12,
+    marginTop: -4,
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: '#2A3045',
+    marginBottom: 16,
+    marginTop: 4,
+  },
+  modalSectionLabel: {
+    color: '#8B9099',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 10,
+    backgroundColor: '#0D0D0D',
+    borderWidth: 1,
+    borderColor: '#2A3045',
+  },
+  modalCancelText: {
+    color: '#8B9099',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalSaveBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 10,
+    backgroundColor: '#2D6A4F',
+  },
+  modalSaveText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 })
