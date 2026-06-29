@@ -154,6 +154,13 @@ export default function HomeScreen() {
   const [showLocModal, setShowLocModal] = useState(false)
   const [loadingNearbyId, setLoadingNearbyId] = useState<string | null>(null)
 
+  const loadDrafts = useCallback(async () => {
+    try {
+      const { data } = await api.get('/reviews?status=draft&limit=10')
+      setDrafts(data.data ?? data.items ?? data ?? [])
+    } catch {}
+  }, [])
+
   // Reload everything whenever the tab is focused
   useFocusEffect(
     useCallback(() => {
@@ -170,10 +177,8 @@ export default function HomeScreen() {
           if (pinnedRaw) setPinned(new Set(JSON.parse(pinnedRaw)))
         }
       )
-      api.get('/reviews?status=draft&limit=10')
-        .then(({ data }) => setDrafts(data.data ?? []))
-        .catch(() => {})
-    }, [])
+      loadDrafts()
+    }, [loadDrafts])
   )
 
   useEffect(() => {
