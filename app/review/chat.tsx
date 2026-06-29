@@ -369,7 +369,15 @@ export default function ChatScreen() {
         const { data: startData } = await api.post(
           `/reviews/${reviewId}/chat/start`,
           {
-            listing_context: { business_name: params.business_name, networks: [] },
+            listing_context: {
+              business_name: params.business_name,
+              networks: [],
+              context_note: contextNote,
+            },
+            previous_messages: messages.map(m => ({
+              role: m.role === 'ai' ? 'assistant' : 'user',
+              content: m.text,
+            })),
             language: 'en',
           },
           { timeout: 60000 }
@@ -411,12 +419,18 @@ export default function ChatScreen() {
         setGeneratedReview(newText)
         setEditReviewText(newText)
         lastGeneratedMessageCountRef.current = messages.length
-        await api.patch(`/reviews/${reviewId}`, { review_text: newText, rating: approveData.rating })
+        try {
+          await api.patch(`/reviews/${reviewId}`, { review_text: newText, rating: approveData.rating })
+        } catch {
+          // save failed silently — UI already shows correct text, don't revert
+          console.warn('Failed to persist review text after rephrase')
+        }
       } else {
         setGeneratedReview(prev)
         Alert.alert('No changes generated', 'The AI didn\'t return a usable result. Please try again.')
       }
-    } catch {
+    } catch (err: any) {
+      console.error('Rephrase failed:', err?.response?.status, err?.response?.data, err?.message)
       setGeneratedReview(prev)
       Alert.alert('Could not rephrase', 'Please try again.')
     } finally {
@@ -465,15 +479,21 @@ export default function ChatScreen() {
         setGeneratedReview(newText)
         setEditReviewText(newText)
         lastGeneratedMessageCountRef.current = messages.length
-        await api.patch(`/reviews/${reviewId}`, {
-          review_text: newText,
-          rating: approveData.rating,
-        })
+        try {
+          await api.patch(`/reviews/${reviewId}`, {
+            review_text: newText,
+            rating: approveData.rating,
+          })
+        } catch {
+          // save failed silently — UI already shows correct text, don't revert
+          console.warn('Failed to persist review text after regenerate')
+        }
       } else {
         setGeneratedReview(prev)
         Alert.alert('No changes generated', 'The AI didn\'t return a usable result. Please try again.')
       }
-    } catch {
+    } catch (err: any) {
+      console.error('Regenerate failed:', err?.response?.status, err?.response?.data, err?.message)
       setGeneratedReview(prev)
       Alert.alert('Error', 'Could not regenerate the review. Please try again.')
     } finally {
