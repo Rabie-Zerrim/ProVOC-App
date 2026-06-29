@@ -336,6 +336,41 @@ export default function ChatScreen() {
     if (!sessionId || !reviewId) return
     setSubmitting(true)
     try {
+      // Content filter before approve. Only runs when there is existing review
+      // text to check (generatedReview is null on first-time generation).
+      // Fail open: any thrown error from the filter call is swallowed.
+      if (generatedReview) {
+        try {
+          const { data: filterData } = await api.post(
+            `/reviews/${reviewId}/chat/filter`,
+            { text: generatedReview },
+            { timeout: 15000 }
+          )
+          if (filterData.approved === false) {
+            Alert.alert(
+              'Review blocked',
+              'Your review contains inappropriate content. Please edit it before submitting.'
+            )
+            return
+          }
+          if (filterData.warning === 'tone_aggressive') {
+            const proceed = await new Promise<boolean>((resolve) => {
+              Alert.alert(
+                'Aggressive tone detected',
+                'Your review may come across as aggressive.',
+                [
+                  { text: 'Edit review', style: 'cancel', onPress: () => resolve(false) },
+                  { text: 'Submit anyway', onPress: () => resolve(true) },
+                ]
+              )
+            })
+            if (!proceed) return
+          }
+        } catch {
+          // Filter call failed — fail open, proceed to approve
+        }
+      }
+
       const { data } = await api.post(
         `/reviews/${reviewId}/chat/approve`,
         { session_id: sessionId },
