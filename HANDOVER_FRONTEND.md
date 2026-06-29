@@ -1036,6 +1036,62 @@ Both profile-edit flows were previously inline (expanding fields in place). Both
 
 ---
 
+## 27. SESSION 2026-06-24 — FIX REPHRASE CONTEXT LOSS ON SECOND+ CALL
+
+### Bug fixed: `app/review/chat.tsx` — `handleRetry` session revival path
+
+**Root cause:** `handleRetry` sets `setSessionId(null)` after every successful rephrase. On the next rephrase, `sid` is therefore `null`, triggering the revival path that calls `chat/start` to get a new session. That `chat/start` call was sending only `{ listing_context: { business_name, networks: [] }, language: 'en' }` — no `context_note`, no `previous_messages`. The AI started each second+ rephrase with a completely blank session and no knowledge of the conversation that had taken place.
+
+**Fix:** The `chat/start` call inside `handleRetry`'s `if (!sid)` block now sends the same body as `handleRegenerate` already did:
+
+```js
+{
+  listing_context: {
+    business_name: params.business_name,
+    networks: [],
+    context_note: contextNote,
+  },
+  previous_messages: messages.map(m => ({
+    role: m.role === 'ai' ? 'assistant' : 'user',
+    content: m.text,
+  })),
+  language: 'en',
+}
+```
+
+`contextNote` is the same computed string (rating, emotion, tone, goal, aspects) used by `initChat` and `handleRegenerate`. `previous_messages` gives the model full conversation history so each rephrase is meaningfully distinct from the last. `tsc --noEmit` clean. No other logic changed.
+
+---
+
+## 26. SESSION 2026-06-24 — FIX REPHRASE/REGENERATE REVERT BUG IN CHAT
+
+### Bug fixed: `app/review/chat.tsx` — `handleRetry` and `handleRegenerate`
+
+**Root cause:** Both functions ended their `if (newText)` block with a bare `await api.patch(...)` that had no inner try-catch. If that PATCH call failed (network hiccup, timeout, any server error), execution fell through to the outer catch block, which called `setGeneratedReview(prev)` and showed a "Could not rephrase" / "Could not regenerate" alert — even though the AI had already returned valid text and `setGeneratedReview(newText)` had already run. The UI reverted to the old review and the user saw an error despite a successful rephrase.
+
+**Fix:** In both functions, wrapped the `PATCH /reviews/:id` call in its own inner try-catch that does not revert the UI on failure. The outer catch now only fires for actual AI failures (`chat/message`, `chat/start`, `chat/approve`) and logs the full error (`status`, `data`, `message`) via `console.error` so failures are diagnosable in Metro logs.
+
+```js
+// inside the if (newText) block, in both handleRetry and handleRegenerate:
+try {
+  await api.patch(`/reviews/${reviewId}`, { review_text: newText, rating: approveData.rating })
+} catch {
+  console.warn('Failed to persist review text after rephrase/regenerate')
+  // UI already correct — don't revert
+}
+
+// outer catch now typed and logs before reverting:
+} catch (err: any) {
+  console.error('Rephrase/Regenerate failed:', err?.response?.status, err?.response?.data, err?.message)
+  setGeneratedReview(prev)
+  Alert.alert(...)
+}
+```
+
+No other logic changed. `tsc --noEmit` clean.
+
+---
+
 ## 25. SESSION 2026-06-24 — DUPLICATE REVIEW FIXES (FRONTEND)
 
 These two changes complement the backend idempotency guard added in `HANDOVER_BFF.md §31`. Together, all three layers close the duplicate-review bug.
@@ -1073,3 +1129,98 @@ With all three layers in place:
 - If the user navigates Back from `chat.tsx` and re-enters, `params.review_id` is now set → `initChat()` skips `POST /reviews` → backend never sees a second create call.
 - If a network hiccup occurs on `POST /reviews`, the call fails once rather than silently retrying.
 - If the client somehow does send two `POST /reviews` calls for the same `(user_id, listing_id)` pair (e.g. through some other code path), the backend returns the existing draft instead of creating a new row.
+
+---
+
+## Session update — 2026-06-28
+
+### Restitution 2 pptx updated (ProVOC_Restitution2_updated.pptx)
+- Slide 1: supervisor name fixed (Mourad Abssi)
+- Slide 5: Facebook removed from platform list
+- Slide 19: DeepSeek → Groq Llama 3.3 70B (text panel only)
+- Slide 22: all progress stats updated to current state
+- Slide 23: next steps rewritten to real perspectives
+- Slide 25: conclusion future work updated
+- Slide 31: 162→165 tests
+
+### Known diagram issues in pptx (manual fix needed)
+- Slides 18 and 20: diagram images are swapped — need manual swap in PowerPoint
+- Slides 18, 19, 20: sequence diagrams show wrong architecture:
+  WebSocket (not used), YOLO (not implemented), Review Requirements Service 
+  (does not exist), Faster-Whisper streaming (not implemented)
+  → Presenter should explain verbally that diagrams were drawn at design phase
+
+### Photo upload — current state
+- photos.tsx screen exists in flow but images go nowhere (no backend endpoint)
+- review_medias table exists in schema with s3_key field
+- Planned: POST /reviews/:id/media + S3 integration + display in review history
+- For now: skip photos screen in flow or leave as-is
+
+---
+
+## Session update — 2026-06-29
+
+### app/review/photos.tsx — S3 photo upload wired up
+
+State changed from `string[]` (local URIs) to `UploadedPhoto[]` (`{ media_id, url, uri }`) plus a `Set<string>` tracking which URIs are currently uploading.
+
+**Upload flow:**
+- `expo-image-manipulator` (newly installed, SDK-54 compatible, works in Expo Go) resizes each image to max 1200px width, compress 0.8, JPEG before upload
+- Optimistic thumbnail appears immediately using the original local URI; a semi-transparent spinner overlay covers it while the upload is in flight
+- `POST /reviews/:id/media` sent as `multipart/form-data`, field name `photo`, 30-second timeout override on the axios call
+- On success: placeholder updated with real `{ media_id, url }` from response
+- On failure: placeholder removed, Alert shown
+- Multiple images from the picker all fire concurrently (no `await` in `forEach`), each tracked independently in the `uploading` Set
+
+**Delete:** calls `DELETE /reviews/:id/media/:mediaId` first; if `media_id` is empty (still uploading), removes the placeholder locally with no API call.
+
+**Next/Skip button:** disabled (`opacity: 0.4`, `disabled={true}`) while any upload is in flight. Label is "Next" when at least one photo is uploaded, "Skip" otherwise.
+
+**`review_id`** comes from route params (already present — passed by `result.tsx` via `{ ...params }`).
+
+### app/(tabs)/reviews.tsx — photo thumbnails in review history
+
+New `ReviewPhoto` component defined at module level (so hooks are valid):
+- Calls `GET /reviews/:id/media` on mount
+- Handles both `data` (plain array) and `data.data` (wrapped) response shapes
+- Stores the first item's `url` in state; returns `null` silently on error or empty array
+- Renders a 60×60 rounded thumbnail (`borderRadius: 8`, `backgroundColor: '#2A3045'` as placeholder background)
+
+Card layout change: existing card content wrapped in a `cardRow` (`flexDirection: 'row', gap: 12`), card content in a `flex: 1` `cardContent` view, `<ReviewPhoto>` as the right-side element. Cards with no media look identical to before (component returns null). No existing styles were modified — three new styles added: `cardRow`, `cardContent`, `cardThumb`.
+
+### app/review/chat.tsx — context carried into session revival
+
+`handleRetry`'s session-revival branch (`if (!sid)`) now sends the same rich `chat/start` body that `handleRegenerate` and `initChat` already used:
+- `listing_context.context_note` (rating, emotion, tone, goal, aspects string)
+- `previous_messages` (full conversation history mapped to `{ role: 'assistant'|'user', content }`)
+
+Previously that branch sent a minimal body with no context, causing the AI to start each second+ rephrase from scratch.
+
+Silent PATCH failure on rephrase/regenerate: the `PATCH /reviews/:id` call that persists the new review text after a successful AI response is now in its own inner try/catch that does not revert the UI on failure. The outer catch (which reverts and shows an alert) now only fires for genuine AI failures (`chat/message`, `chat/start`, `chat/approve`). Outer catch logs `err?.response?.status`, `err?.response?.data`, `err?.message` via `console.error` before reverting.
+
+### npx tsc --noEmit → 0 errors after all three changes.
+
+---
+
+## Session update — 2026-06-29
+
+### Photo upload wired (implemented)
+- app/review/photos.tsx: wired to POST /reviews/:id/media
+  multipart/form-data field photo, optimistic thumbnails with upload spinner,
+  concurrent uploads, DELETE on remove, Next/Skip logic
+  expo-image-manipulator resize to 1200px width, compress 0.8 JPEG before upload
+
+### Review history photos (implemented)
+- app/(tabs)/reviews.tsx: ReviewPhoto component fetches GET /reviews/:id/media
+  on mount, shows first photo as thumbnail on review card
+  Silent fallback if no media
+
+### Content filter in chat (implemented)
+- app/review/chat.tsx: content filter called before approve
+  POST /reviews/:id/chat/filter
+  Blocks on approved:false
+  Two-button alert on tone_aggressive warning
+  Fails open on error
+- Also: context_note + previous_messages added to chat/start
+  Silent patch fail on rephrase/regenerate
+  Better error logging

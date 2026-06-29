@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
@@ -45,6 +45,24 @@ export default function BreakdownScreen() {
     selected_networks?: string
   }>()
   const [ratings, setRatings] = useState<Record<string, Record<string, number>>>({})
+
+  useEffect(() => {
+    if (!params.review_id) return
+    api.get(`/reviews/${params.review_id}`, { timeout: 15000 })
+      .then(({ data }) => {
+        const catRatings: Record<string, number> = data.category_ratings ?? {}
+        if (Object.keys(catRatings).length === 0) return
+        let slugs: string[]
+        try { slugs = params.selected_networks ? JSON.parse(params.selected_networks) : [] }
+        catch { slugs = [] }
+        const initial: Record<string, Record<string, number>> = {}
+        PLATFORMS_ORDER.filter(s => slugs.includes(s)).forEach(slug => {
+          initial[PLATFORM_CONFIG[slug].displayName] = { ...catRatings }
+        })
+        setRatings(initial)
+      })
+      .catch(() => {})
+  }, [])
 
   const setRating = (platform: string, sub: string, val: number) =>
     setRatings((prev) => ({ ...prev, [platform]: { ...(prev[platform] ?? {}), [sub]: val } }))

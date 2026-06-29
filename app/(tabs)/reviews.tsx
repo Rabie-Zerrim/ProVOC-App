@@ -33,7 +33,7 @@ const STATUS_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 const TABS: { key: FilterTab; label: string }[] = [
   { key: 'all',       label: 'All' },
-  { key: 'published', label: 'Published' },
+  { key: 'published', label: 'Posted' },
   { key: 'pending',   label: 'Pending' },
   { key: 'draft',     label: 'Draft' },
 ]
@@ -192,8 +192,9 @@ export default function ReviewsScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2D6A4F" />
           }
           renderItem={({ item }) => {
-            const statusStyle = STATUS_COLORS[item.status] ?? STATUS_COLORS.draft
-            const statusIcon = STATUS_ICONS[item.status] ?? STATUS_ICONS.draft
+            const displayStatus = item.status === 'published' ? 'posted' : item.status
+            const statusStyle = STATUS_COLORS[displayStatus] ?? STATUS_COLORS.draft
+            const statusIcon = STATUS_ICONS[displayStatus] ?? STATUS_ICONS.draft
             const preview = item.review_text?.trim().slice(0, 100)
             const date = new Date(item.updated_at).toLocaleDateString('en-GB', {
               day: 'numeric', month: 'short', year: 'numeric',
@@ -215,7 +216,7 @@ export default function ReviewsScreen() {
                       {isPinned && <Ionicons name="pin" size={12} color="#2D6A4F" style={{ marginRight: 4 }} />}
                       <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
                         <Ionicons name={statusIcon} size={12} color={statusStyle.text} />
-                        <Text style={[styles.statusText, { color: statusStyle.text }]}>{item.status}</Text>
+                        <Text style={[styles.statusText, { color: statusStyle.text }]}>{displayStatus}</Text>
                       </View>
                     </View>
                     <View style={styles.ratingRow}>

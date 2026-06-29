@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, ActivityIndicator } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -17,6 +17,21 @@ export default function PhotosScreen() {
 
   const [photos, setPhotos] = useState<UploadedPhoto[]>([])
   const [uploading, setUploading] = useState<Set<string>>(new Set())
+
+  const refreshMedia = async () => {
+    if (!reviewId) return
+    try {
+      const { data } = await api.get(`/reviews/${reviewId}/media`)
+      const serverList: UploadedPhoto[] = (Array.isArray(data) ? data : (data?.data ?? []))
+        .map((m: any) => ({ media_id: m.media_id, url: m.url, uri: m.url }))
+      setPhotos(prev => {
+        const stillUploading = prev.filter(p => !p.media_id)
+        return [...serverList, ...stillUploading]
+      })
+    } catch {}
+  }
+
+  useEffect(() => { refreshMedia() }, [])
 
   const uploadPhoto = async (uri: string) => {
     if (!reviewId) {
@@ -43,9 +58,7 @@ export default function PhotosScreen() {
         timeout: 30000,
       })
 
-      setPhotos(prev => prev.map(p =>
-        p.uri === uri ? { media_id: data.media_id, url: data.url, uri } : p
-      ))
+      await refreshMedia()
     } catch {
       setPhotos(prev => prev.filter(p => p.uri !== uri))
       Alert.alert('Upload failed', 'Could not upload photo. Please try again.')
