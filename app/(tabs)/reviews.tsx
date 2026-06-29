@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native'
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -46,6 +46,22 @@ function getEndpoint(tab: FilterTab) {
 }
 
 const PINS_KEY = '@provoc_pins'
+
+function ReviewPhoto({ reviewId }: { reviewId: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get(`/reviews/${reviewId}/media`)
+      .then(({ data }) => {
+        const list: { url: string }[] = Array.isArray(data) ? data : (data?.data ?? [])
+        if (list.length > 0) setUrl(list[0].url)
+      })
+      .catch(() => {})
+  }, [reviewId])
+
+  if (!url) return null
+  return <Image source={{ uri: url }} style={styles.cardThumb} />
+}
 
 export default function ReviewsScreen() {
   const router = useRouter()
@@ -192,48 +208,53 @@ export default function ReviewsScreen() {
                 onPress={() => router.push({ pathname: '/review/result', params: { review_id: item.review_id } })}
                 activeOpacity={0.85}
               >
-                <View style={styles.cardHeader}>
-                  <Text style={styles.bizName} numberOfLines={1}>{bizName}</Text>
-                  {isPinned && <Ionicons name="pin" size={12} color="#2D6A4F" style={{ marginRight: 4 }} />}
-                  <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-                    <Ionicons name={statusIcon} size={12} color={statusStyle.text} />
-                    <Text style={[styles.statusText, { color: statusStyle.text }]}>{item.status}</Text>
+                <View style={styles.cardRow}>
+                  <View style={styles.cardContent}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.bizName} numberOfLines={1}>{bizName}</Text>
+                      {isPinned && <Ionicons name="pin" size={12} color="#2D6A4F" style={{ marginRight: 4 }} />}
+                      <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                        <Ionicons name={statusIcon} size={12} color={statusStyle.text} />
+                        <Text style={[styles.statusText, { color: statusStyle.text }]}>{item.status}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.ratingRow}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Ionicons key={s} name={s <= item.rating ? 'star' : 'star-outline'} size={14} color="#FFB800" />
+                      ))}
+                      <Text style={styles.dateText}>{date}</Text>
+                    </View>
+                    {!!preview && (
+                      <Text style={styles.reviewText} numberOfLines={2}>{preview}</Text>
+                    )}
+                    {isEditable && (
+                      <View style={styles.actionRow}>
+                        <TouchableOpacity
+                          style={styles.actionBtn}
+                          onPress={(e) => { e.stopPropagation?.(); togglePin(item.review_id) }}
+                        >
+                          <Ionicons name={isPinned ? 'pin' : 'pin-outline'} size={13} color={isPinned ? '#2D6A4F' : '#8B9099'} />
+                          <Text style={[styles.actionText, isPinned && { color: '#2D6A4F' }]}>{isPinned ? 'Pinned' : 'Pin'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionBtn}
+                          onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: '/review/result', params: { review_id: item.review_id } }) }}
+                        >
+                          <Ionicons name="create-outline" size={13} color="#8B9099" />
+                          <Text style={styles.actionText}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionBtn}
+                          onPress={(e) => { e.stopPropagation?.(); deleteReview(item) }}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                          <Text style={[styles.actionText, { color: '#EF4444' }]}>Delete</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
+                  <ReviewPhoto reviewId={item.review_id} />
                 </View>
-                <View style={styles.ratingRow}>
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Ionicons key={s} name={s <= item.rating ? 'star' : 'star-outline'} size={14} color="#FFB800" />
-                  ))}
-                  <Text style={styles.dateText}>{date}</Text>
-                </View>
-                {!!preview && (
-                  <Text style={styles.reviewText} numberOfLines={2}>{preview}</Text>
-                )}
-                {isEditable && (
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      style={styles.actionBtn}
-                      onPress={(e) => { e.stopPropagation?.(); togglePin(item.review_id) }}
-                    >
-                      <Ionicons name={isPinned ? 'pin' : 'pin-outline'} size={13} color={isPinned ? '#2D6A4F' : '#8B9099'} />
-                      <Text style={[styles.actionText, isPinned && { color: '#2D6A4F' }]}>{isPinned ? 'Pinned' : 'Pin'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.actionBtn}
-                      onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: '/review/result', params: { review_id: item.review_id } }) }}
-                    >
-                      <Ionicons name="create-outline" size={13} color="#8B9099" />
-                      <Text style={styles.actionText}>Edit</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.actionBtn}
-                      onPress={(e) => { e.stopPropagation?.(); deleteReview(item) }}
-                    >
-                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                      <Text style={[styles.actionText, { color: '#EF4444' }]}>Delete</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
               </TouchableOpacity>
             )
           }}
@@ -270,6 +291,9 @@ const styles = StyleSheet.create({
 
   card:       { backgroundColor: '#1A1F2E', borderRadius: 14, padding: 16, marginBottom: 12 },
   cardPinned: { borderWidth: 1, borderColor: '#2D6A4F44' },
+  cardRow:    { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  cardContent: { flex: 1 },
+  cardThumb:  { width: 60, height: 60, borderRadius: 8, backgroundColor: '#2A3045', flexShrink: 0 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   bizName:    { color: '#fff', fontSize: 15, fontWeight: '600', flex: 1 },
   statusBadge:{

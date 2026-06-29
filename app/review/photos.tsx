@@ -1,15 +1,54 @@
 import { useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, ActivityIndicator } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
+import api from '../../services/api'
+
+type UploadedPhoto = { media_id: string; url: string; uri: string }
 
 export default function PhotosScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const params = useLocalSearchParams()
-  const [photos, setPhotos] = useState<string[]>([])
+  const params = useLocalSearchParams<{ review_id?: string }>()
+  const reviewId = String(params.review_id ?? '')
+
+  const [photos, setPhotos] = useState<UploadedPhoto[]>([])
+  const [uploading, setUploading] = useState<Set<string>>(new Set())
+
+  const uploadPhoto = async (uri: string) => {
+    if (!reviewId) {
+      Alert.alert('Error', 'No review ID — please go back and try again.')
+      return
+    }
+
+    setPhotos(prev => [...prev, { media_id: '', url: uri, uri }])
+    setUploading(prev => new Set(prev).add(uri))
+
+    try {
+      const formData = new FormData()
+      formData.append('photo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as any)
+
+      const { data } = await api.post(`/reviews/${reviewId}/media`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      })
+
+      setPhotos(prev => prev.map(p =>
+        p.uri === uri ? { media_id: data.media_id, url: data.url, uri } : p
+      ))
+    } catch {
+      setPhotos(prev => prev.filter(p => p.uri !== uri))
+      Alert.alert('Upload failed', 'Could not upload photo. Please try again.')
+    } finally {
+      setUploading(prev => {
+        const next = new Set(prev)
+        next.delete(uri)
+        return next
+      })
+    }
+  }
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -23,11 +62,24 @@ export default function PhotosScreen() {
       quality: 0.8,
     })
     if (!result.canceled) {
-      setPhotos((prev) => [...prev, ...result.assets.map((a) => a.uri)])
+      result.assets.forEach(asset => uploadPhoto(asset.uri))
     }
   }
 
-  const removePhoto = (uri: string) => setPhotos((prev) => prev.filter((p) => p !== uri))
+  const removePhoto = async (photo: UploadedPhoto) => {
+    if (!photo.media_id) {
+      setPhotos(prev => prev.filter(p => p.uri !== photo.uri))
+      return
+    }
+    try {
+      await api.delete(`/reviews/${reviewId}/media/${photo.media_id}`)
+      setPhotos(prev => prev.filter(p => p.uri !== photo.uri))
+    } catch {
+      Alert.alert('Error', 'Could not remove photo. Please try again.')
+    }
+  }
+
+  const isUploading = uploading.size > 0
 
   return (
     <View style={styles.container}>
@@ -40,24 +92,31 @@ export default function PhotosScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Upload area */}
-        <TouchableOpacity style={styles.uploadArea} onPress={pickImage}>
+        <TouchableOpacity style={styles.uploadArea} onPress={pickImage} disabled={isUploading}>
           <Ionicons name="camera-outline" size={40} color="#8B9099" />
           <Text style={styles.uploadText}>Upload photo</Text>
           <Text style={styles.uploadHint}>Tap to select from your gallery</Text>
         </TouchableOpacity>
 
-        {/* Photo thumbnails */}
         {photos.length > 0 && (
           <View style={styles.thumbGrid}>
-            {photos.map((uri) => (
-              <View key={uri} style={styles.thumbWrapper}>
-                <Image source={{ uri }} style={styles.thumb} />
-                <TouchableOpacity style={styles.removeBtn} onPress={() => removePhoto(uri)}>
-                  <Ionicons name="close-circle" size={20} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            ))}
+            {photos.map((photo) => {
+              const busy = uploading.has(photo.uri)
+              return (
+                <View key={photo.uri} style={styles.thumbWrapper}>
+                  <Image source={{ uri: photo.uri }} style={styles.thumb} />
+                  {busy ? (
+                    <View style={styles.thumbOverlay}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={styles.removeBtn} onPress={() => removePhoto(photo)}>
+                      <Ionicons name="close-circle" size={20} color="#EF4444" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )
+            })}
           </View>
         )}
 
@@ -74,7 +133,8 @@ export default function PhotosScreen() {
           <Text style={styles.btnSecondaryText}>Back</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.btnPrimary}
+          style={[styles.btnPrimary, isUploading && styles.btnDisabled]}
+          disabled={isUploading}
           onPress={() => router.push({ pathname: '/review/thankyou', params })}
         >
           <Text style={styles.btnPrimaryText}>{photos.length > 0 ? 'Next' : 'Skip'}</Text>
@@ -98,21 +158,21 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 17, fontWeight: '700' },
   content: { padding: 20 },
   uploadArea: {
-    borderWidth: 2,
-    borderColor: '#2A3045',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    height: 180,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 20,
+    borderWidth: 2, borderColor: '#2A3045', borderStyle: 'dashed', borderRadius: 16,
+    height: 180, justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 20,
   },
   uploadText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   uploadHint: { color: '#8B9099', fontSize: 12 },
   thumbGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   thumbWrapper: { width: 90, height: 90, borderRadius: 10, overflow: 'visible' },
   thumb: { width: 90, height: 90, borderRadius: 10 },
+  thumbOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   removeBtn: { position: 'absolute', top: -8, right: -8 },
   disclaimer: { color: '#8B9099', fontSize: 12, textAlign: 'center', lineHeight: 18 },
   link: { color: '#2D6A4F', fontWeight: '600' },
