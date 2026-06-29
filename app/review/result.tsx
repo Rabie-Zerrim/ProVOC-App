@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Alert, TextInput,
+  ActivityIndicator, Alert, TextInput, Image, Dimensions, Modal, Pressable,
 } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
+import * as ImageManipulator from 'expo-image-manipulator'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -28,6 +30,10 @@ type Review = {
   selected_networks?: string[] | null
 }
 
+const { width: SCREEN_W } = Dimensions.get('window')
+
+type MediaItem = { media_id: string; url: string }
+
 const SENTIMENT_LABELS: Record<number, { label: string; color: string }> = {
   5: { label: 'Excellent', color: '#2D6A4F' },
   4: { label: 'Very good', color: '#40916C' },
@@ -49,7 +55,7 @@ export default function ResultScreen() {
     review_id: string; business_name: string; listing_id: string
     address: string; rating: string; business_type: string
     network_ids: string; breakdown: string; review_text: string
-    selected_networks?: string
+    selected_networks?: string; source?: string
   }>()
   const [review, setReview] = useState<Review | null>(null)
   const [loading, setLoading] = useState(true)
@@ -61,6 +67,9 @@ export default function ResultScreen() {
     try { return params.breakdown ? JSON.parse(params.breakdown) : {} } catch { return {} }
   })
   const [editableRating, setEditableRating] = useState(Number(params.rating) || 4)
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null)
+  const [uploadingMedia, setUploadingMedia] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!params.review_id) { setLoading(false); return }
@@ -74,7 +83,77 @@ export default function ResultScreen() {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+    refreshMedia()
   }, [params.review_id])
+
+  const refreshMedia = async () => {
+    if (!params.review_id) return
+    try {
+      const { data } = await api.get(`/reviews/${params.review_id}/media`)
+      const serverList: MediaItem[] = (Array.isArray(data) ? data : (data?.data ?? []))
+        .map((m: any) => ({ media_id: m.media_id, url: m.url }))
+      setMediaItems(prev => {
+        const stillUploading = prev.filter(m => !m.media_id)
+        return [...serverList, ...stillUploading]
+      })
+    } catch {}
+  }
+
+  const uploadMedia = async (localUri: string) => {
+    if (!params.review_id) return
+    setMediaItems(prev => [...prev, { media_id: '', url: localUri }])
+    setUploadingMedia(prev => new Set(prev).add(localUri))
+    try {
+      const manipResult = await ImageManipulator.manipulateAsync(
+        localUri, [{ resize: { width: 1200 } }], { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      )
+      const formData = new FormData()
+      formData.append('photo', { uri: manipResult.uri, type: 'image/jpeg', name: 'photo.jpg' } as any)
+      await api.post(`/reviews/${params.review_id}/media`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000,
+      })
+      await refreshMedia()
+    } catch {
+      setMediaItems(prev => prev.filter(m => m.url !== localUri))
+      Alert.alert('Upload failed', 'Could not upload photo. Please try again.')
+    } finally {
+      setUploadingMedia(prev => { const next = new Set(prev); next.delete(localUri); return next })
+    }
+  }
+
+  const addPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow access to your photo library.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    })
+    if (!result.canceled) result.assets.forEach(asset => uploadMedia(asset.uri))
+  }
+
+  const replaceMedia = async (idx: number) => {
+    setPreviewIdx(null)
+    const item = mediaItems[idx]
+    if (!item || !params.review_id) return
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') return
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      quality: 0.8,
+    })
+    if (result.canceled) return
+    const newUri = result.assets[0]?.uri
+    if (!newUri) return
+    if (item.media_id) {
+      try { await api.delete(`/reviews/${params.review_id}/media/${item.media_id}`) } catch {}
+    }
+    uploadMedia(newUri)
+  }
 
   // Must be called before any early return — Rules of Hooks
   const placePhotoUrl = usePlacePhoto(review?.listing?.external_listing_id)
@@ -343,6 +422,14 @@ export default function ResultScreen() {
     await api.patch(`/reviews/${review.review_id}`, { review_text: trimmed }).catch(() => {})
   }
 
+  const handleDone = async () => {
+    const trimmed = editText.trim()
+    if (trimmed && params.review_id) {
+      await api.patch(`/reviews/${params.review_id}`, { review_text: trimmed }).catch(() => {})
+    }
+    router.push('/(tabs)/reviews')
+  }
+
   const renderPlatformCard = (
     networkId: string,
     slug: string,
@@ -557,6 +644,36 @@ export default function ResultScreen() {
           )}
         </TouchableOpacity>
 
+        {/* Photos section — add/replace photos */}
+        {!!params.review_id && (
+          <View style={styles.photosSection}>
+            <Text style={styles.photosSectionTitle}>Photos</Text>
+            <View style={styles.photosGrid}>
+              {mediaItems.map((item, idx) => {
+                const isUploading = !item.media_id
+                return (
+                  <TouchableOpacity
+                    key={item.media_id || item.url}
+                    style={styles.photoThumbWrapper}
+                    onPress={() => !isUploading && setPreviewIdx(idx)}
+                    activeOpacity={isUploading ? 1 : 0.85}
+                  >
+                    <Image source={{ uri: item.url }} style={[styles.photoThumb, isUploading && { opacity: 0.4 }]} />
+                    {isUploading && (
+                      <View style={styles.photoUploadingOverlay}>
+                        <ActivityIndicator size="small" color="#fff" />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+              <TouchableOpacity style={styles.photoAddBtn} onPress={addPhoto} activeOpacity={0.75}>
+                <Ionicons name="add" size={28} color="#8B9099" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Platform cards */}
         {networks.length > 0 ? (
           networks.map((net) =>
@@ -580,12 +697,68 @@ export default function ResultScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.btnPrimary}
-          onPress={() => router.push({ pathname: '/review/photos', params: { ...params, breakdown: JSON.stringify(breakdown) } })}
+          onPress={params.source === 'reviews' ? handleDone : () => router.push({ pathname: '/review/thankyou', params })}
         >
-          <Text style={styles.btnPrimaryText}>Next</Text>
-          <Ionicons name="arrow-forward" size={16} color="#fff" />
+          <Text style={styles.btnPrimaryText}>{params.source === 'reviews' ? 'Done' : 'Submit'}</Text>
+          <Ionicons name="checkmark" size={16} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {/* Photo preview modal — card style */}
+      <Modal
+        visible={previewIdx !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewIdx(null)}
+      >
+        <Pressable style={styles.previewOverlay} onPress={() => setPreviewIdx(null)}>
+          <Pressable style={styles.previewCard} onPress={e => e.stopPropagation()}>
+            {/* Header */}
+            <View style={styles.previewCardHeader}>
+              <View style={styles.previewNavRow}>
+                <TouchableOpacity
+                  style={[styles.previewArrow, previewIdx === 0 && styles.previewArrowDisabled]}
+                  onPress={() => setPreviewIdx(i => (i !== null && i > 0 ? i - 1 : i))}
+                  disabled={previewIdx === 0}
+                >
+                  <Ionicons name="chevron-back" size={22} color="#fff" />
+                </TouchableOpacity>
+                <Text style={styles.previewCardTitle}>
+                  Photo{mediaItems.length > 1 && previewIdx !== null ? ` ${previewIdx + 1} of ${mediaItems.length}` : ''}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.previewArrow, previewIdx === mediaItems.length - 1 && styles.previewArrowDisabled]}
+                  onPress={() => setPreviewIdx(i => (i !== null && i < mediaItems.length - 1 ? i + 1 : i))}
+                  disabled={previewIdx === mediaItems.length - 1}
+                >
+                  <Ionicons name="chevron-forward" size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewIdx(null)}>
+                <Ionicons name="close" size={20} color="#8B9099" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Image */}
+            {previewIdx !== null && mediaItems[previewIdx] && (
+              <Image
+                source={{ uri: mediaItems[previewIdx].url }}
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+            )}
+
+            {/* Replace Photo button */}
+            <TouchableOpacity
+              style={styles.replaceBtn}
+              onPress={() => previewIdx !== null && replaceMedia(previewIdx)}
+            >
+              <Ionicons name="camera-outline" size={16} color="#2D6A4F" />
+              <Text style={styles.replaceBtnText}>Replace Photo</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -705,6 +878,53 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   shareText: { color: '#2D6A4F', fontSize: 13, fontWeight: '700' },
+
+  /* Photos section */
+  photosSection: { marginHorizontal: 20, marginBottom: 16 },
+  photosSectionTitle: { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 10 },
+  photosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  photoThumbWrapper: { width: 74, height: 74, borderRadius: 10, overflow: 'hidden' },
+  photoThumb: { width: 74, height: 74, borderRadius: 10, backgroundColor: '#2A3045' },
+  photoUploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  photoAddBtn: {
+    width: 74, height: 74, borderRadius: 10,
+    backgroundColor: '#1A1F2E', borderWidth: 1, borderColor: '#2A3045', borderStyle: 'dashed',
+    justifyContent: 'center', alignItems: 'center',
+  },
+
+  /* Photo preview modal — card style */
+  previewOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  previewCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 20, overflow: 'hidden', width: '100%',
+  },
+  previewCardHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#2A3045',
+  },
+  previewNavRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  previewCardTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  previewClose: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#2A3045', justifyContent: 'center', alignItems: 'center',
+  },
+  previewImage: { width: '100%', height: SCREEN_W * 0.85 },
+  previewArrow: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#2A3045', justifyContent: 'center', alignItems: 'center',
+  },
+  previewArrowDisabled: { opacity: 0.3 },
+  replaceBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#2A3045',
+  },
+  replaceBtnText: { color: '#2D6A4F', fontSize: 15, fontWeight: '700' },
 
   bottomBar: {
     flexDirection: 'row', paddingHorizontal: 20, paddingTop: 12, gap: 12,

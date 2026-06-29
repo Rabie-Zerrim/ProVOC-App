@@ -61,15 +61,16 @@ function formatDraftDate(dateStr: string) {
 type NearbyCardProps = {
   biz: NearbyItem
   onPress: () => void
+  loading?: boolean
 }
 
-function NearbyCard({ biz, onPress }: NearbyCardProps) {
+function NearbyCard({ biz, onPress, loading }: NearbyCardProps) {
   const placePhotoUrl = usePlacePhoto(biz.id)
   const fallbackUri = getBizPhoto(biz.type ?? '', biz.id)
   const photoUri = placePhotoUrl ?? fallbackUri
 
   return (
-    <TouchableOpacity style={styles.nearbyCard} onPress={onPress} activeOpacity={0.85}>
+    <TouchableOpacity style={styles.nearbyCard} onPress={onPress} activeOpacity={0.85} disabled={loading}>
       <ImageBackground
         source={{ uri: photoUri }}
         style={styles.nearbyCardBg}
@@ -86,6 +87,11 @@ function NearbyCard({ biz, onPress }: NearbyCardProps) {
             <Text style={styles.nearbyAddr} numberOfLines={1}>{biz.address}</Text>
           </View>
         </View>
+        {loading && (
+          <View style={styles.nearbyCardLoadingOverlay}>
+            <ActivityIndicator color="#fff" />
+          </View>
+        )}
       </ImageBackground>
     </TouchableOpacity>
   )
@@ -145,6 +151,8 @@ export default function HomeScreen() {
   const [nearbyLoading, setNearbyLoading] = useState(true)
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null)
   const [recommendations, setRecommendations] = useState<any[]>([])
+  const [showLocModal, setShowLocModal] = useState(false)
+  const [loadingNearbyId, setLoadingNearbyId] = useState<string | null>(null)
 
   // Reload everything whenever the tab is focused
   useFocusEffect(
@@ -169,21 +177,43 @@ export default function HomeScreen() {
   )
 
   useEffect(() => {
-    loadNearby()
+    checkAndLoadNearby()
   }, [])
+
+  const checkAndLoadNearby = async () => {
+    const { status } = await Location.getForegroundPermissionsAsync()
+    if (status === 'granted') {
+      loadNearby()
+      return
+    }
+    const asked = await AsyncStorage.getItem('@provoc_loc_asked')
+    if (!asked) {
+      setNearbyLoading(false)
+      setShowLocModal(true)
+    } else {
+      setNearbyLoading(false)
+    }
+  }
+
+  const handleAllowLocation = async () => {
+    setShowLocModal(false)
+    await AsyncStorage.setItem('@provoc_loc_asked', '1')
+    loadNearby()
+  }
+
+  const handleMaybeLater = async () => {
+    setShowLocModal(false)
+    await AsyncStorage.setItem('@provoc_loc_asked', '1')
+    setNearbyLoading(false)
+  }
 
   useEffect(() => {
     api.get('/recommendations')
       .then(res => {
-        console.log('Recommendations response:', res.data)
         setRecommendations(Array.isArray(res.data) ? res.data : (res.data?.data ?? []))
       })
-      .catch((err) => {
-        console.log('Recommendations error:', err.response?.status, err.message)
-        setRecommendations([])
-      })
+      .catch(() => setRecommendations([]))
   }, [])
-  console.log('=== CURRENT USER ID ===', user?.user_id)
 
   const handleLongPress = (draft: DraftReview) => setSheetDraft(draft)
 
@@ -214,6 +244,35 @@ export default function HomeScreen() {
         },
       },
     ])
+  }
+
+  const handleNearbyPress = async (biz: NearbyItem) => {
+    setLoadingNearbyId(biz.id)
+    try {
+      const { data } = await api.post('/listings', {
+        external_listing_id: biz.id,
+        external_url: '',
+        name: biz.name,
+        address: biz.address,
+        external_rating: 0,
+        network: 'google',
+      })
+      const listingId = data.listing_id ?? data.id
+      router.push({
+        pathname: '/review/networks',
+        params: {
+          listing_id: listingId,
+          business_name: biz.name,
+          address: biz.address,
+          rating: '',
+          business_type: biz.type ?? '',
+        },
+      })
+    } catch {
+      Alert.alert('Error', 'Could not open this business. Please try again.')
+    } finally {
+      setLoadingNearbyId(null)
+    }
   }
 
   const loadNearby = async () => {
@@ -269,7 +328,7 @@ export default function HomeScreen() {
           </View>
         </View>
         <TouchableOpacity style={styles.notifBtn}>
-          <Ionicons name="notifications-outline" size={22} color="#fff" />
+          <Ionicons name="menu" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -291,11 +350,7 @@ export default function HomeScreen() {
         <View style={styles.nearbyLoader}>
           <ActivityIndicator color="#2D6A4F" />
         </View>
-      ) : nearby.length === 0 ? (
-        <View style={styles.nearbyEmpty}>
-          <Text style={styles.nearbyEmptyText}>No businesses found nearby</Text>
-        </View>
-      ) : (
+      ) : nearby.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -303,9 +358,32 @@ export default function HomeScreen() {
           contentContainerStyle={{ paddingLeft: 20, paddingRight: 8 }}
         >
           {nearby.map((biz) => (
-            <NearbyCard key={biz.id} biz={biz} onPress={() => router.push('/search')} />
+            <NearbyCard
+              key={biz.id}
+              biz={biz}
+              onPress={() => handleNearbyPress(biz)}
+              loading={loadingNearbyId === biz.id}
+            />
           ))}
         </ScrollView>
+      ) : (
+        /* No location or no results — inline full-width card */
+        <View style={styles.nearbyInlineCard}>
+          <View style={styles.nearbyInlineTop}>
+            <View style={styles.nearbyInlineIconWrap}>
+              <Ionicons name="help-circle-outline" size={32} color="#8B9099" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.nearbyInlineTitle}>Allow your location</Text>
+              <Text style={styles.nearbyInlineSub}>
+                To find nearby businesses, please share your location.
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.nearbyInlineBtn} onPress={() => setShowLocModal(true)}>
+            <Text style={styles.nearbyInlineBtnText}>Allow Location</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Recommended For You */}
@@ -328,19 +406,18 @@ export default function HomeScreen() {
       )}
 
       {/* CTA card */}
-      <View style={styles.ctaCard}>
-        <Ionicons name="chatbubble-ellipses-outline" size={32} color="#fff" style={{ marginBottom: 10 }} />
-        <Text style={styles.ctaTitle}>How was your last experience?</Text>
-        <Text style={styles.ctaSubtitle}>Write once, share everywhere</Text>
-        <TouchableOpacity style={styles.ctaBtn} onPress={() => router.push('/search')}>
-          <Text style={styles.ctaBtnText}>Share review</Text>
-          <Ionicons name="arrow-forward" size={16} color="#fff" />
-        </TouchableOpacity>
-        <View style={styles.aiDisclaimer}>
-          <Ionicons name="sparkles-outline" size={12} color="#8B9099" />
-          <Text style={styles.aiDisclaimerText}>AI assists in refining your review</Text>
+      <TouchableOpacity style={styles.ctaCard} onPress={() => router.push('/search')} activeOpacity={0.85}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.ctaTitle}>How was your last experience?</Text>
+          <Text style={styles.ctaSubtitle}>Write once, share everywhere</Text>
         </View>
-      </View>
+        <View style={styles.ctaArrowBtn}>
+          <Ionicons name="chevron-forward" size={20} color="#fff" />
+        </View>
+      </TouchableOpacity>
+      <Text style={styles.aiText}>
+        AI assists with structuring and tone, you always approve before posting.
+      </Text>
 
       {/* Drafts */}
       {drafts.length > 0 && (
@@ -362,7 +439,7 @@ export default function HomeScreen() {
               <TouchableOpacity
                 key={draft.review_id}
                 style={[styles.draftItem, isPinned && styles.draftItemPinned]}
-                onPress={() => router.push({ pathname: '/review/chat', params: { review_id: draft.review_id, business_name: draft.business?.name ?? '', business_type: draft.business?.business_type ?? '', rating: String(draft.rating ?? '') } })}
+                onPress={() => router.push({ pathname: '/review/chat', params: { review_id: draft.review_id, listing_id: draft.listing?.listing_id ?? '', business_name: draft.business?.name ?? '', business_type: draft.business?.business_type ?? '', rating: String(draft.rating ?? '') } })}
                 onLongPress={() => handleLongPress(draft)}
                 delayLongPress={400}
               >
@@ -403,6 +480,27 @@ export default function HomeScreen() {
 
       <View style={{ height: 24 }} />
     </ScrollView>
+
+    {/* Location permission modal */}
+    <Modal visible={showLocModal} transparent animationType="fade" onRequestClose={handleMaybeLater}>
+      <View style={styles.locOverlay}>
+        <View style={styles.locCard}>
+          <View style={styles.locIconWrap}>
+            <Ionicons name="location" size={48} color="#FF6B6B" />
+          </View>
+          <Text style={styles.locTitle}>Allow your location</Text>
+          <Text style={styles.locSubtitle}>
+            To find nearby businesses, please share your location.
+          </Text>
+          <TouchableOpacity style={styles.locAllowBtn} onPress={handleAllowLocation}>
+            <Text style={styles.locAllowText}>Allow Location</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleMaybeLater}>
+            <Text style={styles.locLaterText}>Maybe Later</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
 
     {/* Draft action sheet */}
     <Modal visible={!!sheetDraft} transparent animationType="slide" onRequestClose={() => setSheetDraft(null)}>
@@ -498,8 +596,30 @@ const styles = StyleSheet.create({
   nearbyLoader: { height: 130, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
   nearbyEmpty: { height: 60, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
   nearbyEmptyText: { color: '#8B9099', fontSize: 13 },
+  nearbyInlineCard: {
+    marginHorizontal: 20, marginBottom: 24,
+    borderWidth: 1.5, borderColor: '#2A3045', borderStyle: 'dashed',
+    borderRadius: 16, backgroundColor: '#1A1F2E', padding: 16, gap: 14,
+  },
+  nearbyInlineTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  nearbyInlineIconWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#2A3045', justifyContent: 'center', alignItems: 'center',
+  },
+  nearbyInlineTitle: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  nearbyInlineSub: { color: '#8B9099', fontSize: 12, lineHeight: 17 },
+  nearbyInlineBtn: {
+    backgroundColor: '#2D6A4F', borderRadius: 12,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  nearbyInlineBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   nearbyCard: { width: 160, height: 140, borderRadius: 16, marginRight: 12, overflow: 'hidden' },
   nearbyCardBg: { width: '100%', height: '100%' },
+  nearbyCardLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center',
+  },
   nearbyCardOverlay: {
     flex: 1, borderRadius: 16, padding: 10,
     justifyContent: 'space-between',
@@ -513,17 +633,22 @@ const styles = StyleSheet.create({
   nearbyBottom: { gap: 2 },
   nearbyName: { color: '#fff', fontSize: 13, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
   nearbyAddr: { color: 'rgba(255,255,255,0.75)', fontSize: 10 },
-  ctaCard: { backgroundColor: '#1B4332', borderRadius: 16, marginHorizontal: 20, padding: 20, marginBottom: 28 },
-  ctaTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  ctaSubtitle: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginBottom: 16 },
-  ctaBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#2D6A4F', borderRadius: 10, paddingHorizontal: 16,
-    paddingVertical: 10, alignSelf: 'flex-start', marginBottom: 12,
+  ctaCard: {
+    backgroundColor: '#1B4332', borderRadius: 16,
+    marginHorizontal: 20, padding: 20, marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 16,
   },
-  ctaBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  aiDisclaimer: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  aiDisclaimerText: { color: '#8B9099', fontSize: 11 },
+  ctaTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  ctaSubtitle: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  ctaArrowBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#2D6A4F', justifyContent: 'center', alignItems: 'center',
+    flexShrink: 0,
+  },
+  aiText: {
+    color: '#8B9099', fontSize: 12, textAlign: 'center',
+    marginHorizontal: 20, marginBottom: 28,
+  },
   draftItem: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1F2E',
     borderRadius: 12, padding: 14, marginHorizontal: 20, marginBottom: 10,
@@ -580,6 +705,29 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: 'center',
   },
   sheetCancelText: { color: '#8B9099', fontSize: 15, fontWeight: '600' },
+
+  locOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
+  },
+  locCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 24, padding: 28,
+    alignItems: 'center', width: '100%',
+  },
+  locIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: '#FF6B6B22', justifyContent: 'center', alignItems: 'center',
+    marginBottom: 20,
+  },
+  locTitle: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
+  locSubtitle: { color: '#8B9099', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 24 },
+  locAllowBtn: {
+    backgroundColor: '#2D6A4F', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 24,
+    width: '100%', alignItems: 'center', marginBottom: 14,
+  },
+  locAllowText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  locLaterText: { color: '#8B9099', fontSize: 14, fontWeight: '500' },
 
   recScroll: { marginBottom: 24 },
   recCard: {

@@ -1202,6 +1202,16 @@ Silent PATCH failure on rephrase/regenerate: the `PATCH /reviews/:id` call that 
 
 ---
 
+## Session update — 2026-06-29 (fixes)
+
+- breakdown.tsx: pre-populates category ratings from GET /reviews/:id on mount
+- photos.tsx: fetches existing media from GET /reviews/:id/media on mount,
+  refreshMedia() called after each upload so server is source of truth
+- reviews.tsx: Published tab label → Posted, displayStatus remaps
+  published → posted for any stale records
+
+---
+
 ## Session update — 2026-06-29
 
 ### Photo upload wired (implemented)

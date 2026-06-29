@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons, FontAwesome } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -9,7 +9,7 @@ import { getBizPhoto } from '../../utils/bizPhoto'
 import api from '../../services/api'
 import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
-const PLATFORMS_ORDER = ['facebook', 'yelp', 'google', 'tripadvisor', 'trustpilot']
+const PLATFORMS_ORDER = ['yelp', 'google', 'tripadvisor', 'trustpilot']
 
 function StarRow({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
@@ -42,26 +42,56 @@ export default function BreakdownScreen() {
   const params = useLocalSearchParams<{
     listing_id: string; business_name: string; address: string
     rating: string; business_type: string; network_ids: string; review_id: string
-    selected_networks?: string
+    selected_networks?: string; source?: string
   }>()
   const [ratings, setRatings] = useState<Record<string, Record<string, number>>>({})
+  // null = still fetching (fromReviews only); undefined = not needed (normal flow)
+  const [reviewSlugs, setReviewSlugs] = useState<string[] | null>(
+    params.source === 'reviews' ? null : ([] as string[])
+  )
+  const [saving, setSaving] = useState(false)
+  // listing_id may be empty in nav params when coming from reviews history;
+  // populated from GET /reviews/:id response in the useEffect below.
+  const [listingId, setListingId] = useState(params.listing_id ?? '')
 
   useEffect(() => {
-    if (!params.review_id) return
+    if (!params.review_id) {
+      if (params.source === 'reviews') setReviewSlugs([])
+      return
+    }
     api.get(`/reviews/${params.review_id}`, { timeout: 15000 })
       .then(({ data }) => {
+        // Parse selected_networks from API response
+        let apiSlugs: string[] = []
+        if (Array.isArray(data.selected_networks)) {
+          apiSlugs = data.selected_networks
+        } else if (typeof data.selected_networks === 'string') {
+          try { apiSlugs = JSON.parse(data.selected_networks) } catch { apiSlugs = [] }
+        }
+        if (params.source === 'reviews') setReviewSlugs(apiSlugs)
+
+        // Capture listing_id from the API response (nav param may be empty)
+        const fetchedListingId = data.listing_id ?? data.listing?.listing_id ?? ''
+        if (fetchedListingId) setListingId(fetchedListingId)
+
+        // Pre-populate from category_ratings using the correct slug list for this context
         const catRatings: Record<string, number> = data.category_ratings ?? {}
         if (Object.keys(catRatings).length === 0) return
-        let slugs: string[]
-        try { slugs = params.selected_networks ? JSON.parse(params.selected_networks) : [] }
-        catch { slugs = [] }
+        const initSlugs = params.source === 'reviews'
+          ? apiSlugs
+          : (() => {
+              try { return params.selected_networks ? JSON.parse(params.selected_networks) : [] }
+              catch { return [] }
+            })()
         const initial: Record<string, Record<string, number>> = {}
-        PLATFORMS_ORDER.filter(s => slugs.includes(s)).forEach(slug => {
+        PLATFORMS_ORDER.filter(s => initSlugs.includes(s)).forEach(slug => {
           initial[PLATFORM_CONFIG[slug].displayName] = { ...catRatings }
         })
-        setRatings(initial)
+        if (Object.keys(initial).length > 0) setRatings(initial)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (params.source === 'reviews') setReviewSlugs([])
+      })
   }, [])
 
   const setRating = (platform: string, sub: string, val: number) =>
@@ -89,6 +119,29 @@ export default function BreakdownScreen() {
   }
 
   const handleNext = async () => {
+    if (params.source === 'reviews') {
+      setSaving(true)
+      try {
+        await api.patch(`/reviews/${params.review_id}`, {
+          category_ratings: buildCategoryRatings(),
+        })
+        router.push({
+          pathname: '/review/result',
+          params: {
+            review_id: params.review_id,
+            listing_id: listingId || params.listing_id || '',
+            source: 'reviews',
+          },
+        })
+      } catch {
+        Alert.alert('Failed to save ratings', 'Please try again.')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    // Normal creation flow — PATCH is supplementary, never blocks navigation
     const categoryRatings = buildCategoryRatings()
     if (params.review_id && Object.keys(categoryRatings).length > 0) {
       try {
@@ -96,23 +149,29 @@ export default function BreakdownScreen() {
           api.patch(`/reviews/${params.review_id}`, { category_ratings: categoryRatings }),
         )
       } catch (e) {
-        // Supplementary data — never block navigation on this failing.
         console.log('Could not save category ratings (non-critical):', e)
       }
     }
     router.push({
-      pathname: '/review/result',
+      pathname: '/review/photos',
       params: { ...params, breakdown: JSON.stringify(ratings) },
     })
   }
 
+  const fromReviews = params.source === 'reviews'
+  const isLoading = fromReviews && reviewSlugs === null
+
+  // fromReviews: slug list comes from API response (reviewSlugs state)
+  // normal flow: slug list comes from nav params
   let selectedSlugs: string[]
-  try {
-    selectedSlugs = params.selected_networks
-      ? JSON.parse(params.selected_networks)
-      : []
-  } catch {
-    selectedSlugs = []
+  if (fromReviews) {
+    selectedSlugs = reviewSlugs ?? []
+  } else {
+    try {
+      selectedSlugs = params.selected_networks ? JSON.parse(params.selected_networks) : []
+    } catch {
+      selectedSlugs = []
+    }
   }
 
   const businessCategories = getCategoriesForBusiness(params.business_type)
@@ -137,43 +196,55 @@ export default function BreakdownScreen() {
         imageUri={bizPhoto}
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {PLATFORMS_ORDER.filter((slug) => selectedSlugs.includes(slug)).map((slug) => {
-          const cfg = PLATFORM_CONFIG[slug]
-          const subs = businessCategories
-
-          return (
-            <View key={slug} style={styles.platformCard}>
-              {/* Platform header */}
-              <View style={styles.platformHeader}>
-                <View style={[styles.platformDot, { backgroundColor: cfg.color }]}>
-                  <PlatformIcon slug={slug} />
+      {isLoading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color="#2D6A4F" size="large" />
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {PLATFORMS_ORDER.filter((slug) => selectedSlugs.includes(slug)).map((slug) => {
+            const cfg = PLATFORM_CONFIG[slug]
+            const subs = businessCategories
+            return (
+              <View key={slug} style={styles.platformCard}>
+                <View style={styles.platformHeader}>
+                  <View style={[styles.platformDot, { backgroundColor: cfg.color }]}>
+                    <PlatformIcon slug={slug} />
+                  </View>
+                  <Text style={styles.platformName}>{cfg.displayName}</Text>
                 </View>
-                <Text style={styles.platformName}>{cfg.displayName}</Text>
+                {subs.map((sub) => (
+                  <StarRow
+                    key={sub}
+                    label={sub}
+                    value={ratings[cfg.displayName]?.[sub] ?? 0}
+                    onChange={(v) => setRating(cfg.displayName, sub, v)}
+                  />
+                ))}
               </View>
-
-              {/* Sub-category star rows */}
-              {subs.map((sub, i) => (
-                <StarRow
-                  key={sub}
-                  label={sub}
-                  value={ratings[cfg.displayName]?.[sub] ?? 0}
-                  onChange={(v) => setRating(cfg.displayName, sub, v)}
-                />
-              ))}
-            </View>
-          )
-        })}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+            )
+          })}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
-        <TouchableOpacity style={styles.btnSecondary} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.btnSecondary} onPress={() => router.back()} disabled={saving}>
           <Text style={styles.btnSecondaryText}>Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.btnPrimary} onPress={handleNext}>
-          <Text style={styles.btnPrimaryText}>Next</Text>
-          <Ionicons name="arrow-forward" size={16} color="#fff" />
+        <TouchableOpacity
+          style={[styles.btnPrimary, (saving || isLoading) && { opacity: 0.6 }]}
+          onPress={handleNext}
+          disabled={saving || isLoading}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Text style={styles.btnPrimaryText}>{fromReviews ? 'Save' : 'Next'}</Text>
+              <Ionicons name="arrow-forward" size={16} color="#fff" />
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -194,6 +265,7 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 17, fontWeight: '700' },
 
   content: { paddingHorizontal: 20, paddingTop: 8 },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   platformCard: {
     backgroundColor: '#1A1F2E', borderRadius: 16,

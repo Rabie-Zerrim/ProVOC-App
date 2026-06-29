@@ -13,6 +13,8 @@ type Review = {
   updated_at: string
   listing?: { name: string }
   business?: { name?: string }
+  category_ratings?: Record<string, number>
+  selected_networks?: string[] | null
 }
 
 type FilterTab = 'all' | 'published' | 'pending' | 'draft'
@@ -206,7 +208,22 @@ export default function ReviewsScreen() {
             return (
               <TouchableOpacity
                 style={[styles.card, isPinned && styles.cardPinned]}
-                onPress={() => router.push({ pathname: '/review/result', params: { review_id: item.review_id } })}
+                onPress={() => router.push({
+                  pathname: '/review/breakdown',
+                  params: {
+                    review_id: item.review_id,
+                    business_name: bizName,
+                    rating: String(item.rating ?? ''),
+                    address: '',
+                    business_type: '',
+                    listing_id: '',
+                    network_ids: '',
+                    selected_networks: item.selected_networks
+                      ? JSON.stringify(item.selected_networks)
+                      : '[]',
+                    source: 'reviews',
+                  },
+                })}
                 activeOpacity={0.85}
               >
                 <View style={styles.cardRow}>
@@ -220,11 +237,15 @@ export default function ReviewsScreen() {
                       </View>
                     </View>
                     <View style={styles.ratingRow}>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Ionicons key={s} name={s <= item.rating ? 'star' : 'star-outline'} size={14} color="#FFB800" />
-                      ))}
+                      <Ionicons name="star" size={13} color="#FFB800" />
+                      <Text style={styles.ratingNum}>{item.rating?.toFixed(1) ?? '—'}</Text>
                       <Text style={styles.dateText}>{date}</Text>
                     </View>
+                    {Object.keys(item.category_ratings ?? {}).length > 0 && (
+                      <Text style={styles.breakdownText} numberOfLines={1}>
+                        {Object.entries(item.category_ratings ?? {}).slice(0, 4).map(([k, v]) => `${k} ★${v}`).join(' · ')}
+                      </Text>
+                    )}
                     {!!preview && (
                       <Text style={styles.reviewText} numberOfLines={2}>{preview}</Text>
                     )}
@@ -239,7 +260,7 @@ export default function ReviewsScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.actionBtn}
-                          onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: '/review/result', params: { review_id: item.review_id } }) }}
+                          onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: '/review/breakdown', params: { review_id: item.review_id, business_name: bizName, rating: String(item.rating ?? ''), address: '', business_type: '', listing_id: '', network_ids: '', selected_networks: item.selected_networks ? JSON.stringify(item.selected_networks) : '[]', source: 'reviews' } }) }}
                         >
                           <Ionicons name="create-outline" size={13} color="#8B9099" />
                           <Text style={styles.actionText}>Edit</Text>
@@ -302,9 +323,11 @@ const styles = StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginLeft: 8,
   },
   statusText: { fontSize: 12, textTransform: 'capitalize', fontWeight: '600' },
-  ratingRow:  { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 8 },
-  dateText:   { color: '#8B9099', fontSize: 11, marginLeft: 8 },
-  reviewText: { color: '#8B9099', fontSize: 13, lineHeight: 18 },
+  ratingRow:    { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
+  ratingNum:    { color: '#FFB800', fontSize: 12, fontWeight: '700' },
+  dateText:     { color: '#8B9099', fontSize: 11, marginLeft: 4 },
+  breakdownText:{ color: '#8B9099', fontSize: 11, marginBottom: 6 },
+  reviewText:   { color: '#8B9099', fontSize: 13, lineHeight: 18 },
 
   actionRow: {
     flexDirection: 'row', marginTop: 10, paddingTop: 10,
