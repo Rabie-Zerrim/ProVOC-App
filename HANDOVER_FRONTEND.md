@@ -1234,3 +1234,73 @@ Silent PATCH failure on rephrase/regenerate: the `PATCH /reviews/:id` call that 
 - Also: context_note + previous_messages added to chat/start
   Silent patch fail on rephrase/regenerate
   Better error logging
+
+---
+
+## Session update — 2026-06-29 (UI overhaul)
+
+### Screen flow changes
+- rate.tsx and type.tsx combined into one screen — stars at top, 
+  3 review type cards animate in after selecting rating
+- type.tsx deleted — unreachable dead code removed
+- Screen order confirmed: networks → rate → voice/chat → photos → 
+  breakdown → result → thankyou
+- Continue draft from home: goes to chat with review_id + listing_id
+- History edit flow: reviews tab → breakdown (source=reviews) → 
+  result (source=reviews) → reviews tab
+
+### Home screen (home.tsx)
+- Location modal: React Native Modal popup, dark overlay, pink pin icon,
+  "Allow your location", green button, "Maybe Later" text, 
+  shows once via @provoc_loc_asked AsyncStorage key
+- Inline placeholder card in Nearby when no location granted
+- Nearby: horizontal scroll photo cards with name + distance badge
+- CTA card: dark green, row layout, text left + green arrow button right
+- AI disclaimer text moved outside card as small grey text
+- Hamburger menu icon replaces notification bell
+- Draft list API call fixed: /reviews?status=draft&limit=10
+  (was using undocumented statuses= plural param)
+
+### Profile screen (profile.tsx)
+- Removed "Your Ratings" star breakdown section entirely
+- Removed /reviews/stats API call
+- Donut chart shows only 3 segments: Draft / Pending / Posted
+- posted count merges posted + published so no data lost
+- "Published" label gone entirely
+
+### Reviews history (reviews.tsx)
+- Review cards: show ★ rating number + date on one line
+- Breakdown categories shown below: "Service ★4 · Food ★3" capped at 4
+- Removed 5-star icon row from cards
+- Published status remapped to Posted in display
+- Tapping review card → breakdown screen (source=reviews)
+
+### Breakdown screen (breakdown.tsx)
+- When source=reviews: fetches GET /reviews/:id to get selected_networks
+  and category_ratings, only shows platforms used for that review,
+  pre-fills from DB only (0 if no ratings saved before)
+- Save button: PATCHes /reviews/:id with category_ratings,
+  on success navigates to result screen (source=reviews)
+- Normal creation flow unchanged
+
+### Result screen (result.tsx)
+- Photos section: loads GET /reviews/:id/media on mount, read-only grid,
+  fullscreen preview with left/right navigation
+- When source=reviews: Submit shows "Done", PATCHes review text,
+  navigates back to reviews history tab
+- Normal creation flow (→ thankyou) unchanged
+
+### Photos screen (photos.tsx)
+- OR separator + "Open camera & take photos" green button
+- Thumbnails tappable → fullscreen preview with left/right + Replace Photo
+- On mount: fetches existing media from GET /reviews/:id/media
+- After upload: refreshes from server (source of truth)
+
+### Voice screen (voice.tsx)
+- Bottom bar: dark pill "Ask anything..." with keypad-outline icon left
+  and send icon right
+- Green pill "Tap to speak" with pulse/radio icon
+
+### Cleanup
+- Removed 9 debug console.log statements from search.tsx, chat.tsx, result.tsx
+- Kept intentional console.warn/console.error diagnostics in chat.tsx

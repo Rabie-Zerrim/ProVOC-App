@@ -341,11 +341,13 @@ export default function ChatScreen() {
       // Fail open: any thrown error from the filter call is swallowed.
       if (generatedReview) {
         try {
+          console.log('FILTER REQUEST:', generatedReview.substring(0, 50))
           const { data: filterData } = await api.post(
             `/reviews/${reviewId}/chat/filter`,
             { text: generatedReview },
             { timeout: 15000 }
           )
+          console.log('FILTER RESPONSE:', JSON.stringify(filterData))
           if (filterData.approved === false) {
             Alert.alert(
               'Review blocked',
