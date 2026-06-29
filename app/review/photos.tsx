@@ -4,6 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
+import * as ImageManipulator from 'expo-image-manipulator'
 import api from '../../services/api'
 
 type UploadedPhoto = { media_id: string; url: string; uri: string }
@@ -27,8 +28,15 @@ export default function PhotosScreen() {
     setUploading(prev => new Set(prev).add(uri))
 
     try {
+      const manipResult = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      )
+      const uploadUri = manipResult.uri
+
       const formData = new FormData()
-      formData.append('photo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as any)
+      formData.append('photo', { uri: uploadUri, type: 'image/jpeg', name: 'photo.jpg' } as any)
 
       const { data } = await api.post(`/reviews/${reviewId}/media`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
