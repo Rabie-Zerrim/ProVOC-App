@@ -250,7 +250,6 @@ export default function SearchScreen() {
         searchParams.lng = '10.1815'
       }
       const { data } = await api.get('/listings/search', { params: searchParams })
-      console.log('Raw API response:', JSON.stringify(data).substring(0, 2000))
       const networkData = data?.data ?? data
       const items: ResultItem[] = []
       for (const network of Object.keys(networkData)) {
@@ -262,8 +261,6 @@ export default function SearchScreen() {
       setResults(items)
       if (items.length === 0) setSearchError('No businesses found. Try a more specific search term.')
     } catch (err: any) {
-      console.log('Search error status:', err?.response?.status)
-      console.log('Search error body:', JSON.stringify(err?.response?.data))
       const msg = err?.response?.data?.message
         ? (Array.isArray(err.response.data.message) ? err.response.data.message[0] : err.response.data.message)
         : err?.message ?? 'Search failed.'

@@ -170,7 +170,7 @@ export default function HomeScreen() {
           if (pinnedRaw) setPinned(new Set(JSON.parse(pinnedRaw)))
         }
       )
-      api.get('/reviews?statuses=draft,pending&limit=10&sort_by=updated_at&sort_order=desc')
+      api.get('/reviews?status=draft&limit=10')
         .then(({ data }) => setDrafts(data.data ?? []))
         .catch(() => {})
     }, [])

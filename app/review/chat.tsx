@@ -445,8 +445,6 @@ export default function ChatScreen() {
         { session_id: sid },
         { timeout: 60000 }
       )
-      console.log('RETRY response:', JSON.stringify(approveData))
-
       const newText = approveData.review_text ?? approveData.improved_text ?? approveData.text ?? ''
       setSessionId(null)
 
@@ -502,8 +500,6 @@ export default function ChatScreen() {
         { session_id: freshSessionId },
         { timeout: 60000 }
       )
-      console.log('REGENERATE response:', JSON.stringify(approveData))
-
       const newText = approveData.review_text ??
         approveData.improved_text ??
         approveData.text ?? ''

@@ -75,7 +75,6 @@ export default function ResultScreen() {
     if (!params.review_id) { setLoading(false); return }
     api.get(`/reviews/${params.review_id}`)
       .then(({ data }) => {
-        console.log('Review API response:', JSON.stringify(data))
         const reviewText = (params.review_text as string) || data.review_text || ''
         setReview({ ...data, review_text: reviewText })
         setEditText(reviewText)
@@ -264,7 +263,6 @@ export default function ResultScreen() {
         )
       }
     } catch (e: any) {
-      console.log('POST FLOW CATCH:', e?.message, e)
       await Clipboard.setStringAsync(reviewText)
       await Linking.openURL(url)
     }
@@ -275,7 +273,6 @@ export default function ResultScreen() {
     setPosting(networkId)
     try {
       const { data } = await api.get(`/reviews/${review.review_id}/publish-link?platform_id=${networkId}`)
-      console.log('publish-link response:', JSON.stringify(data))
       const reviewText = data.review_text ?? review.review_text
 
       if (platformSlug === 'google') {
