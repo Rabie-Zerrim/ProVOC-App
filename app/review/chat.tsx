@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native'
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -56,8 +57,10 @@ export default function ChatScreen() {
   const [submitting, setSubmitting] = useState(false)
   const [initError, setInitError] = useState(false)
   const [voiceMode, setVoiceMode] = useState(false)
+  const [showFilterModal, setShowFilterModal] = useState(false)
   const flatRef = useRef<FlatList>(null)
   const messagesRef = useRef<Message[]>([])
+  const filterResolveRef = useRef<((proceed: boolean) => void) | null>(null)
   // Tracks messages.length at the time the review was last generated/
   // rephrased/regenerated, so handleRetry can detect new user messages
   // added since then and fold them into the rephrase instead of ignoring them.
@@ -339,12 +342,15 @@ export default function ChatScreen() {
       // Content filter before approve. Only runs when there is existing review
       // text to check (generatedReview is null on first-time generation).
       // Fail open: any thrown error from the filter call is swallowed.
-      if (generatedReview) {
+      const textToFilter = generatedReview || messages.filter(m => m.role === 'ai').pop()?.text || ''
+      if (textToFilter) {
+        console.log('generatedReview value:', textToFilter?.substring(0, 50))
         try {
-          console.log('FILTER REQUEST:', generatedReview.substring(0, 50))
+          console.log('Calling filter for review:', reviewId)
+          console.log('FILTER REQUEST:', textToFilter.substring(0, 50))
           const { data: filterData } = await api.post(
             `/reviews/${reviewId}/chat/filter`,
-            { text: generatedReview },
+            { text: textToFilter },
             { timeout: 15000 }
           )
           console.log('FILTER RESPONSE:', JSON.stringify(filterData))
@@ -357,14 +363,8 @@ export default function ChatScreen() {
           }
           if (filterData.warning === 'tone_aggressive') {
             const proceed = await new Promise<boolean>((resolve) => {
-              Alert.alert(
-                'Aggressive tone detected',
-                'Your review may come across as aggressive.',
-                [
-                  { text: 'Edit review', style: 'cancel', onPress: () => resolve(false) },
-                  { text: 'Submit anyway', onPress: () => resolve(true) },
-                ]
-              )
+              filterResolveRef.current = resolve
+              setShowFilterModal(true)
             })
             if (!proceed) return
           }
@@ -768,6 +768,45 @@ export default function ChatScreen() {
           </View>
         </>
       )}
+
+      {/* Aggressive tone warning modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowFilterModal(false)
+          filterResolveRef.current?.(false)
+        }}
+      >
+        <View style={styles.filterOverlay}>
+          <View style={styles.filterCard}>
+            <View style={[styles.filterIconWrap, { backgroundColor: '#F59E0B22' }]}>
+              <Ionicons name="warning-outline" size={48} color="#F59E0B" />
+            </View>
+            <Text style={styles.filterTitle}>Aggressive tone detected</Text>
+            <Text style={styles.filterSubtitle}>Your review may come across as aggressive.</Text>
+            <TouchableOpacity
+              style={styles.filterPrimaryBtn}
+              onPress={() => {
+                setShowFilterModal(false)
+                filterResolveRef.current?.(true)
+              }}
+            >
+              <Text style={styles.filterPrimaryText}>Submit anyway</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.filterSecondaryBtn}
+              onPress={() => {
+                setShowFilterModal(false)
+                filterResolveRef.current?.(false)
+              }}
+            >
+              <Text style={styles.filterSecondaryText}>Edit review</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -875,4 +914,28 @@ const styles = StyleSheet.create({
   },
   tapToSpeakText: { color: '#8B9099', fontSize: 14 },
   sendBtn: { padding: 4 },
+
+  filterOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
+  },
+  filterCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 24,
+    alignItems: 'center', width: '100%',
+  },
+  filterIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 20,
+  },
+  filterTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
+  filterSubtitle: { color: '#8B9099', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 24 },
+  filterPrimaryBtn: {
+    backgroundColor: '#2D6A4F', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 24,
+    width: '100%', alignItems: 'center', marginBottom: 14,
+  },
+  filterPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  filterSecondaryBtn: { paddingVertical: 4 },
+  filterSecondaryText: { color: '#8B9099', fontSize: 14, fontWeight: '500' },
 })

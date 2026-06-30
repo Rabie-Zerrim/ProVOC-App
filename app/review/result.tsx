@@ -70,6 +70,7 @@ export default function ResultScreen() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const [previewIdx, setPreviewIdx] = useState<number | null>(null)
   const [uploadingMedia, setUploadingMedia] = useState<Set<string>>(new Set())
+  const [showPostModal, setShowPostModal] = useState(false)
 
   useEffect(() => {
     if (!params.review_id) { setLoading(false); return }
@@ -242,25 +243,11 @@ export default function ResultScreen() {
           animated: true,
           modalEnabled: true,
         })
-        Alert.alert(
-          'Did you post the review?',
-          'Your review was copied to clipboard.',
-          [
-            { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
-            { text: 'Not yet', style: 'cancel' },
-          ]
-        )
+        setShowPostModal(true)
       } else {
         await Clipboard.setStringAsync(reviewText)
         await Linking.openURL(url)
-        Alert.alert(
-          'Did you post the review?',
-          'Your review was copied to clipboard.',
-          [
-            { text: 'Yes, posted!', onPress: () => handleMarkAsPosted() },
-            { text: 'Not yet', style: 'cancel' },
-          ]
-        )
+        setShowPostModal(true)
       }
     } catch (e: any) {
       await Clipboard.setStringAsync(reviewText)
@@ -756,6 +743,36 @@ export default function ResultScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Did-you-post confirmation modal */}
+      <Modal
+        visible={showPostModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPostModal(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <View style={[styles.confirmIconWrap, { backgroundColor: '#40916C22' }]}>
+              <Ionicons name="checkmark-circle-outline" size={48} color="#40916C" />
+            </View>
+            <Text style={styles.confirmTitle}>Did you post the review?</Text>
+            <Text style={styles.confirmSubtitle}>Your review was copied to clipboard.</Text>
+            <TouchableOpacity
+              style={styles.confirmPrimaryBtn}
+              onPress={() => {
+                setShowPostModal(false)
+                handleMarkAsPosted()
+              }}
+            >
+              <Text style={styles.confirmPrimaryText}>Yes, posted!</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.confirmSecondaryBtn} onPress={() => setShowPostModal(false)}>
+              <Text style={styles.confirmSecondaryText}>Not yet</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -938,5 +955,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 8,
   },
   btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  confirmOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
+  },
+  confirmCard: {
+    backgroundColor: '#1A1F2E', borderRadius: 16, padding: 24,
+    alignItems: 'center', width: '100%',
+  },
+  confirmIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 20,
+  },
+  confirmTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
+  confirmSubtitle: { color: '#8B9099', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 24 },
+  confirmPrimaryBtn: {
+    backgroundColor: '#2D6A4F', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 24,
+    width: '100%', alignItems: 'center', marginBottom: 14,
+  },
+  confirmPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  confirmSecondaryBtn: { paddingVertical: 4 },
+  confirmSecondaryText: { color: '#8B9099', fontSize: 14, fontWeight: '500' },
 
 })
