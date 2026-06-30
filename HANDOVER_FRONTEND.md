@@ -1304,3 +1304,19 @@ Silent PATCH failure on rephrase/regenerate: the `PATCH /reviews/:id` call that 
 ### Cleanup
 - Removed 9 debug console.log statements from search.tsx, chat.tsx, result.tsx
 - Kept intentional console.warn/console.error diagnostics in chat.tsx
+
+## Session update — 2026-06-29 (modals + filter)
+
+### Custom styled modals (result.tsx, chat.tsx)
+- "Did you post?" confirmation: custom Modal replacing Alert.alert,
+  green checkmark icon, dark card #1A1F2E, radius 16,
+  "Yes, posted!" green button, "Not yet" text link
+- Filter warning "Aggressive tone": custom Modal replacing Alert.alert,
+  orange warning icon, same dark card style,
+  "Submit anyway" green button, "Edit review" text link,
+  hardware back resolves false (same as cancel)
+
+### Content filter (chat.tsx)
+- Filter now correctly catches aggressive content
+- prompt moved to Langfuse as chat-filter, fetched per-request
+- textToFilter uses last AI message as fallback when generatedReview is null

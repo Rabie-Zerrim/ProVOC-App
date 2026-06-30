@@ -130,11 +130,14 @@ function RecommendationCard({ rec }: { rec: any }) {
       }}
     >
       <Text style={styles.recName} numberOfLines={1}>{rec.business_name}</Text>
-      <View style={styles.recRating}>
-        <Text style={{ color: '#FFB800', fontSize: 13, fontWeight: '600' }}>
-          ⭐ {rating?.toFixed(1) ?? '—'}
-        </Text>
-      </View>
+      <Text style={styles.recSubtitle}>Recommended based on your taste profile</Text>
+      {(rating ?? rec.rating) != null && (
+        <View style={styles.recRating}>
+          <Text style={{ color: '#FFB800', fontSize: 12, fontWeight: '600' }}>
+            ★ {(rating ?? rec.rating)?.toFixed(1)}
+          </Text>
+        </View>
+      )}
       <Text style={styles.recScore}>{Math.round((rec.score ?? 0) * 100)}% match</Text>
     </TouchableOpacity>
   )
@@ -303,6 +306,7 @@ export default function HomeScreen() {
       }))
       items.sort((a, b) => (a.distance ?? 999) - (b.distance ?? 999))
       setNearby(items.slice(0, 6))
+      if (items.length > 0) console.log('NEARBY[0]:', JSON.stringify(items[0]))
     } catch {}
     finally { setNearbyLoading(false) }
   }
@@ -739,7 +743,8 @@ const styles = StyleSheet.create({
     width: 140, backgroundColor: '#1A1F2E', borderRadius: 14,
     padding: 14, marginRight: 12, justifyContent: 'space-between',
   },
-  recName: { color: '#fff', fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  recName: { color: '#fff', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  recSubtitle: { color: '#8B9099', fontSize: 11, marginTop: 2, marginBottom: 6 },
   recRating: { marginBottom: 6 },
   recScore: { color: '#40916C', fontSize: 11, fontWeight: '700' },
 })

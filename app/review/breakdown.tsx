@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TodayCard from '../../components/TodayCard'
 import { PLATFORM_CONFIG, getCategoriesForBusiness } from '../../utils/platformConfig'
 import { getBizPhoto } from '../../utils/bizPhoto'
+import { usePlacePhoto } from '../../hooks/usePlacePhoto'
 import api from '../../services/api'
 import { withNetworkErrorRetry } from '../../utils/withNetworkErrorRetry'
 
@@ -53,6 +54,7 @@ export default function BreakdownScreen() {
   // listing_id may be empty in nav params when coming from reviews history;
   // populated from GET /reviews/:id response in the useEffect below.
   const [listingId, setListingId] = useState(params.listing_id ?? '')
+  const [externalListingId, setExternalListingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!params.review_id) {
@@ -73,6 +75,7 @@ export default function BreakdownScreen() {
         // Capture listing_id from the API response (nav param may be empty)
         const fetchedListingId = data.listing_id ?? data.listing?.listing_id ?? ''
         if (fetchedListingId) setListingId(fetchedListingId)
+        setExternalListingId(data.listing?.external_listing_id ?? null)
 
         // Pre-populate from category_ratings using the correct slug list for this context
         const catRatings: Record<string, number> = data.category_ratings ?? {}
@@ -175,8 +178,8 @@ export default function BreakdownScreen() {
   }
 
   const businessCategories = getCategoriesForBusiness(params.business_type)
-
-  const bizPhoto = getBizPhoto(params.business_type ?? '', params.listing_id ?? params.business_name ?? '')
+  const placePhotoUrl = usePlacePhoto(externalListingId)
+  const bizPhoto = placePhotoUrl ?? getBizPhoto(params.business_type ?? '', params.listing_id ?? params.business_name ?? '')
 
   return (
     <View style={styles.container}>

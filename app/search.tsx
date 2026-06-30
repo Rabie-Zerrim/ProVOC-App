@@ -67,6 +67,7 @@ type SearchResultItemProps = {
 }
 
 function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemProps) {
+  const [photoFailed, setPhotoFailed] = useState(false)
   const name = typeof item.data.name === 'string' ? item.data.name : ''
   const addr = typeof item.data.formattedAddress === 'string' ? item.data.formattedAddress : ''
   const rating = typeof item.data.globalRating === 'number' && item.data.globalRating > 0 ? item.data.globalRating : null
@@ -85,7 +86,7 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
     else if (nat && typeof nat === 'object' && typeof nat.total === 'number') count = nat.total
   }
 
-  const placePhotoUrl = item.data.photo_reference
+  const placePhotoUrl = !photoFailed && item.data.photo_reference
     ? `https://places.googleapis.com/v1/${item.data.photo_reference}/media?maxWidthPx=400&key=${process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY}`
     : null
   const fallbackUri = getBizPhoto(item.bizType ?? (activeCategory?.toLowerCase() ?? ''), name || item.data.id)
@@ -93,7 +94,7 @@ function SearchResultItem({ item, activeCategory, onPress }: SearchResultItemPro
 
   return (
     <TouchableOpacity style={styles.resultItem} onPress={onPress}>
-      <Image source={{ uri: photoUri }} style={styles.resultThumb} />
+      <Image source={{ uri: photoUri }} style={styles.resultThumb} onError={() => setPhotoFailed(true)} />
       <View style={styles.resultInfo}>
         <View style={styles.resultNameRow}>
           <Text style={styles.resultName} numberOfLines={1}>{name}</Text>
@@ -259,6 +260,7 @@ export default function SearchScreen() {
         }
       }
       setResults(items)
+      if (items.length > 0) console.log('SEARCH RESULT[0]:', JSON.stringify(items[0]))
       if (items.length === 0) setSearchError('No businesses found. Try a more specific search term.')
     } catch (err: any) {
       const msg = err?.response?.data?.message
