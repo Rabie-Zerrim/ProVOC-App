@@ -236,7 +236,7 @@ export default function SearchScreen() {
   }
 
   const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); return }
+    if (q.trim().length < 2) { setResults([]); return }
     setLoading(true)
     setSearchError('')
     setUsingOSM(false)
